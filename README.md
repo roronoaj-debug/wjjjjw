@@ -353,6 +353,38 @@ If you encounter a logger error, create a ```log``` folder under ```PhIDO-Releas
 
 ## 🤝 Contributing
 
+## 📢 发布说明（2025-11-03）
+
+本次更新聚焦于端到端稳定性提升与常见错误的自愈处理，核心变化如下：
+
+- 修复与改进
+   - 参数过滤与兼容：在生成 GDSFactory netlist 时，对每个实例的设置项做“允许参数白名单”过滤（基于 PDK 反射与 DesignLibrary 函数签名双重推断），自动剔除组件不接受的参数（如 `waveguide_width`），避免 `TypeError: unexpected keyword argument`。
+   - 端口与命名映射：从 DOT 节点标签中解析 DSL 节点 id，建立 DOT→DSL 映射，修复顶层 `ports` 使用 DOT 名（如 `C1`）而实例名为 DSL 名（如 `N1`）导致的构建失败（`'C1' not in ['N1']`）。
+   - 端口数量兜底：若从 DOT 未能推断到≥2个外部端口，自动回退暴露至少两个端口（优先选用首/尾节点），避免 SAX 报错 `at least 2 ports need to be defined`。
+   - 结构化输出解析更稳健：优先严格 JSON 解析，失败再走 YAML 兜底；自动剥离 Markdown 代码围栏，遇到包含冒号的叙述性字段自动加引号或转为 block scalar，降低 YAML 解析失败概率。
+   - DOT 清洗与布局兜底：清理 DOT 中的代码围栏/注释，补齐/配平大括号；解析失败时将无效 DOT 存入 `build/invalid_dot_*.dot` 以便诊断；坐标提取失败时回退到线性布置，保证后续流程不中断。
+   - 端口解析健壮性：开放端口提取允许端点中包含额外冒号（如方位后缀），避免 `too many values to unpack`。
+
+- 稳定性与体验
+   - 组件选择阶段：操作按钮（提交/自动选择/重置）始终可见，不因模板缺失而阻塞流程。
+   - 放置与别名：根据 DOT label 中的 DSL id 建立别名坐标，大小写不敏感匹配，避免 `KeyError`（如 `A` vs `N1`）。
+   - netlist 转换：对缺失 `placement` 的节点提供回退坐标，避免 `KeyError: 'placement'`。
+
+- 使用提示
+   - 启动：
+      - 本地：`streamlit run PhotonicsAI/Photon/webapp.py`
+      - 远程访问：建议使用 `--server.address 0.0.0.0 --server.port 8501` 并开放/转发端口。
+   - API Key：`.env` 中配置 `ZHIPU_API_KEY`；`OPENAI_API_KEY` 可选（部分步骤用作严格结构化解析）。
+
+- 兼容性
+   - 对现有 DSL/模板保持向后兼容；如需让 `mzi_2x2_heater_tin_cband` 支持可调宽度，可在组件中新增参数（例如 `width`），当前默认宽度不变。
+
+- 已知问题
+   - 若 LLM 输出夹带自然语言/Markdown，仍可能触发兜底路径；建议使用纯 JSON/DOT 输出以发挥最佳稳定性。
+   - 生成的无效 DOT 会保存在 `build/invalid_dot_*.dot`，可用于后续提示工程与清洗策略优化。
+
+更多细节请参考 `PhotonicsAI/Photon/utils.py` 与 `PhotonicsAI/Photon/llm_api.py` 的注释与实现。
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
