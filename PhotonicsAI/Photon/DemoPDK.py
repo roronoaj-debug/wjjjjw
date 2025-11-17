@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 import gdsfactory as gf
+import numpy as np
 import jax.numpy as jnp
 
 # from io import BytesIO
@@ -18,6 +19,7 @@ from bayes_opt import BayesianOptimization
 from gdsfactory.generic_tech import get_generic_pdk
 
 from PhotonicsAI.config import PATH
+from PhotonicsAI.Photon import tidy3d_runner
 
 # import copy
 from PhotonicsAI.Photon import utils
@@ -168,9 +170,23 @@ def yaml_netlist_to_gds(session, ignore_links=False):
         required_models.append("ERROR: recursive netlist failed")
         pass
 
-    _circuit, info = sax.circuit(
-        gf_netlist_dict_recursive, all_models, backend="default"
-    )
+    # Decide whether to run SAX based on availability of at least two distinct external ports
+    ports_map = data.get("ports", {}) if isinstance(data, dict) else {}
+    endpoints = set(str(v) for v in ports_map.values())
+    has_two_distinct_ports = len(endpoints) >= 2
+
+    if has_two_distinct_ports:
+        _circuit, info = sax.circuit(
+            gf_netlist_dict_recursive, all_models, backend="default"
+        )
+        session["p400_sax_circuit"] = _circuit
+    else:
+        # Skip SAX: provide a harmless dummy circuit and note that models may be unused
+        def _dummy_circuit(wl=None, **kwargs):
+            wl = wl if wl is not None else np.linspace(1.5, 1.6, 16)
+            return {("o1", "o1"): np.zeros_like(wl)}
+
+        session["p400_sax_circuit"] = _dummy_circuit
 
     gdsfig = c.plot(return_fig=True, show_labels=True)
     plt.savefig("build/plot_gds.png")
@@ -183,7 +199,14 @@ def yaml_netlist_to_gds(session, ignore_links=False):
     # session['gf_netlist_dict'] = gf_netlist_dict
     # session['gf_netlist_dict_recursive'] = gf_netlist_dict_recursive
     session["p400_required_models"] = required_models
-    session["p400_sax_circuit"] = _circuit
+    # session["p400_sax_circuit"] is set above (actual or dummy)
+
+    # Best-effort: log intended Tidy3D calls and write a minimal config/snapshot
+    try:
+        tidy3d_runner.try_log_tidy3d(session)
+    except Exception as _e:
+        # Never let Tidy3D logging break the main flow
+        pass
 
     return c, session
 

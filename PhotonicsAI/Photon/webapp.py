@@ -705,6 +705,43 @@ def run_step_by_step_layout_simulation(custom_circuit_dsl_yaml):
             result = session["p400_sax_circuit"](wl=wl)
             p400_sax_fig = utils.plot_dict_arrays(wl, result)
         st.image(str(PATH.build / "plot_sax.png"))
+
+        # Show Tidy3D integration logs (if any) for this run
+        try:
+            tlog = PATH.build / "tidy3d.log"
+            tcfg = PATH.build / "tidy3d_config.json"
+            sim_pngs = [
+                PATH.build / "tidy3d_sim_z0.png",
+                PATH.build / "tidy3d_sim_x0.png",
+                PATH.build / "tidy3d_sim_y0.png",
+            ]
+            if tlog.exists() or tcfg.exists() or any(p.exists() for p in sim_pngs):
+                with st.expander("Tidy3D 集成日志、配置与结构图", expanded=False):
+                    # 配置
+                    if tcfg.exists():
+                        st.caption("配置 (build/tidy3d_config.json)")
+                        try:
+                            st.code((tcfg.read_text(encoding="utf-8")), language="json")
+                        except Exception:
+                            st.write(str(tcfg))
+                    # 日志
+                    if tlog.exists():
+                        st.caption("日志 (build/tidy3d.log)")
+                        try:
+                            lines = tlog.read_text(encoding="utf-8").splitlines()[-120:]
+                            st.code("\n".join(lines), language="text")
+                        except Exception:
+                            st.write(str(tlog))
+                    # 结构图
+                    if any(p.exists() for p in sim_pngs):
+                        st.caption("结构图切片 (z=0 / x=0 / y=0)")
+                        cols = st.columns(3)
+                        for i, p in enumerate(sim_pngs):
+                            if p.exists():
+                                with cols[i]:
+                                    st.image(str(p))
+        except Exception:
+            pass
         
         with st.spinner("Checking DRC..."):
             try:

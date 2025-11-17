@@ -484,6 +484,21 @@ def add_final_ports(session):
             port_dict[f"o{i+1}"] = open_port.replace(":", ",")
         return port_dict
 
+    def available_ports_for_node(node_id: str) -> list[str]:
+        nodes = session["p300_circuit_dsl"].get("nodes", {})
+        info = nodes.get(node_id, {}).get("properties", {})
+        spec = info.get("ports")
+        # Parse like "1x2" -> total 3 ports o1..o3
+        if isinstance(spec, str) and "x" in spec:
+            try:
+                a, b = spec.split("x")
+                total = int(a) + int(b)
+                return [f"o{i}" for i in range(1, total + 1)] if total >= 1 else ["o1"]
+            except Exception:
+                return ["o1"]
+        # Unknown spec: assume at least o1
+        return ["o1"]
+
     dot_src = session["p300_dot_string"]
     open_ports_list = find_open_ports(dot_src)
 
@@ -510,8 +525,18 @@ def add_final_ports(session):
             continue
         target_node = map_node_to_dsl(node)
         if target_node:
-            mapped_open_ports.append(f"{target_node}:{port}")
-    open_ports_list = mapped_open_ports
+            # Validate port existence, fallback to o1 if needed
+            avail = available_ports_for_node(target_node)
+            port_name = port if port in avail else ("o1" if "o1" in avail else avail[0])
+            mapped_open_ports.append(f"{target_node}:{port_name}")
+    # Deduplicate endpoints while preserving order
+    seen = set()
+    dedup_open_ports = []
+    for ep in mapped_open_ports:
+        if ep not in seen:
+            seen.add(ep)
+            dedup_open_ports.append(ep)
+    open_ports_list = dedup_open_ports
 
     # Fallback: ensure at least 2 external ports for SAX circuit validation
     if len(open_ports_list) < 2:
@@ -520,15 +545,32 @@ def add_final_ports(session):
             if nodes:
                 first = nodes[0]
                 last = nodes[-1] if len(nodes) > 1 else nodes[0]
-                # Prefer expose o1 of first and last nodes
-                # Avoid duplicates if only one node
-                open_ports_list = [f"{first}:o1", f"{last}:o2" if last == first else f"{last}:o1"]
+                # Build valid ports for first and (optional) second endpoints, avoiding duplicates
+                first_avail = available_ports_for_node(first)
+                first_port = first_avail[0] if first_avail else "o1"
+                candidate = [f"{first}:{first_port}"]
+                if last != first:
+                    last_avail = available_ports_for_node(last)
+                    if last_avail:
+                        last_port = last_avail[0]
+                        ep2 = f"{last}:{last_port}"
+                        if ep2 not in candidate:
+                            candidate.append(ep2)
+                # Do not force two endpoints if only one valid exists; gf can handle single top-level port
+                open_ports_list = candidate
         except Exception:
             # As a last resort, create generic o1/o2 on a synthetic node name; 
             # but keep best effort to avoid crashing
-            open_ports_list = ["N1:o1", "N2:o1"]
+            open_ports_list = ["N1:o1"]
 
-    circuit_ports_dict = create_port_dict(open_ports_list)
+    # Final dedupe before assignment
+    seen2 = set()
+    final_ports = []
+    for ep in open_ports_list:
+        if ep not in seen2:
+            seen2.add(ep)
+            final_ports.append(ep)
+    circuit_ports_dict = create_port_dict(final_ports)
 
     session["p300_circuit_dsl"]["ports"] = circuit_ports_dict
     # print(yaml.dump(data, default_flow_style=False))

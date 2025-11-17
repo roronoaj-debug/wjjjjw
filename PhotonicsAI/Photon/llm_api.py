@@ -1689,48 +1689,58 @@ def apply_settings(session, llm_api_selection):
     if text:
         text = re.sub(r'^(\s*[A-Za-z0-9_\-]+:\s*)(.+)$', _quote_rhs_if_needed, text, flags=re.MULTILINE)
 
-    # Now try to load sanitized YAML (first attempt)
-    if isinstance(updated_y2, dict):
-        # keep as is
-        pass
-    else:
-        try:
-            updated_y2 = yaml.safe_load(text)
-        except Exception:
-            # Fallback: convert narrative single-line fields into block scalars to avoid inline parsing issues
-            def to_block_scalar(match: re.Match) -> str:
-                indent = match.group(1)
-                key = match.group(2)
-                rhs = match.group(3).strip()
-                # strip surrounding quotes if present
-                if (rhs.startswith('"') and rhs.endswith('"')) or (rhs.startswith("'") and rhs.endswith("'")):
-                    rhs = rhs[1:-1]
-                # unescape
-                rhs = rhs.replace('\\"', '"')
-                # build block scalar with two-space indentation
-                block_lines = [f"{indent}{key}: |", f"{indent}  {rhs}"]
-                return "\n".join(block_lines)
+    # Now try to load sanitized YAML / or repair JSON-like content
+    if not isinstance(updated_y2, dict):
+        parsed = None
+        if text:
+            # First attempt: direct YAML
+            try:
+                parsed = yaml.safe_load(text)
+            except Exception:
+                parsed = None
 
-            block_pattern = re.compile(r"^(\s*)(comment|comments|description|desc|notes|note|summary):\s*(.+)$", re.MULTILINE)
-            text_block = re.sub(block_pattern, to_block_scalar, text)
-            updated_y2 = yaml.safe_load(text_block)
-        # Fallback: convert narrative single-line fields into block scalars to avoid inline parsing issues
-        def to_block_scalar(match: re.Match) -> str:
-            indent = match.group(1)
-            key = match.group(2)
-            rhs = match.group(3).strip()
-            # strip surrounding quotes if present
-            if (rhs.startswith('"') and rhs.endswith('"')) or (rhs.startswith("'") and rhs.endswith("'")):
-                rhs = rhs[1:-1]
-            # unescape
-            rhs = rhs.replace('\\"', '"')
-            # build block scalar with two-space indentation
-            block_lines = [f"{indent}{key}: |", f"{indent}  {rhs}"]
-            return "\n".join(block_lines)
+            if parsed is None:
+                # Second attempt: convert narrative fields to block scalars and try YAML again
+                def to_block_scalar(match: re.Match) -> str:
+                    indent = match.group(1)
+                    key = match.group(2)
+                    rhs = match.group(3).strip()
+                    # strip surrounding quotes if present
+                    if (rhs.startswith('"') and rhs.endswith('"')) or (rhs.startswith("'") and rhs.endswith("'")):
+                        rhs = rhs[1:-1]
+                    # unescape
+                    rhs = rhs.replace('\\"', '"')
+                    block_lines = [f"{indent}{key}: |", f"{indent}  {rhs}"]
+                    return "\n".join(block_lines)
 
-        block_pattern = re.compile(r"^(\s*)(comment|comments|description|desc|notes|note|summary):\s*(.+)$", re.MULTILINE)
-        text_block = re.sub(block_pattern, to_block_scalar, text)
-        updated_y2 = yaml.safe_load(text_block)
+                block_pattern = re.compile(r"^(\s*)(comment|comments|description|desc|notes|note|summary):\s*(.+)$", re.MULTILINE)
+                text_block = re.sub(block_pattern, to_block_scalar, text)
+                try:
+                    parsed = yaml.safe_load(text_block)
+                except Exception:
+                    parsed = None
+
+            if parsed is None:
+                # Third attempt: repair common missing commas in JSON-like maps
+                # Insert a comma between successive key-value pairs like: "k1": v1 \n "k2": v2
+                text_jsonish = re.sub(r'("\s*:\s*[^,\n\{\}\[\]]+)\s*\n\s*(")', r'\1,\n\2', text)
+                # Try to extract and parse JSON object after repair
+                obj = _extract_json_object(text_jsonish)
+                if isinstance(obj, dict):
+                    parsed = obj
+
+            if parsed is None:
+                # Final attempt: ast.literal_eval on a Python-like dict
+                try:
+                    import ast as _ast
+                    parsed = _ast.literal_eval(text)
+                except Exception:
+                    parsed = None
+
+        updated_y2 = parsed if isinstance(parsed, dict) else None
+        if updated_y2 is None:
+            # As a last resort, keep prior nodes unchanged to avoid crashing UI
+            return session["p300_circuit_dsl"]
     # Ensure result is a mapping and strip stray comment fields
     if not isinstance(updated_y2, dict):
         raise ValueError("apply_settings: LLM 返回的 YAML 不是映射类型，无法更新 nodes")
