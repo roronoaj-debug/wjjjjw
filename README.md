@@ -1,31 +1,9 @@
-# 环境与依赖安装
 
-建议使用 Python 3.12 虚拟环境（如 venv 或 conda），并安装仓库内 requirements.txt 所列依赖。
-
-推荐步骤：
-
-```bash
-# 创建并激活虚拟环境（如 myvenv）
-python3 -m venv ~/myvenv
-source ~/myvenv/bin/activate
-
-# 升级 pip 并安装依赖
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-如需开发/调试 Streamlit Web 应用，可用如下命令启动：
-
-```bash
-python -m streamlit run PhotonicsAI/Photon/webapp.py --server.address 127.0.0.1 --server.port 8501
-```
-
-如遇依赖冲突或导入错误，请确保 requirements.txt 与 pyproject.toml 的 gdsfactory/kfactory 版本一致（推荐 gdsfactory==8.18.1, kfactory==0.21.7）。
 # PhIDO: AI-Powered Photonic Circuit Designer
 
 PhIDO (Photonics Intelligent Design and Optimization) is an intelligent web application that automates the design of photonic integrated circuits using Large Language Models (LLMs). The application provides both automatic guided workflows and step-by-step execution modes for circuit design, from specification to layout generation and Design Rule Checking (DRC).
 
-[Paper preprint](https://arxiv.org/abs/2508.14123)
+
 
 > **📚 Getting Started**: For hands-on tutorials and detailed step-by-step instructions on using PhIDO, see [GETTING_STARTED.md](GETTING_STARTED.md). This comprehensive guide includes practical examples, troubleshooting tips, and detailed explanations of both workflow modes.
 
@@ -100,20 +78,6 @@ Create a `log` folder under `PhIDO-Release/PhotonicsAI/`
 Create a `.env` file in the project root with your API keys:
 
 ```bash
-# Required for OpenAI models (GPT-4, GPT-4o, O1)
-OPENAI_API_KEY='your-openai-api-key'
-
-# Required for Anthropic Claude models
-ANTHROPIC_API_KEY='your-anthropic-api-key'
-
-# Required for Google Gemini models
-GOOGLEGENAI_API_KEY='your-google-api-key'
-
-# Required for DeepSeek-R1
-DEEPSEEK_API_KEY='your-deepseek-api-key'
-
-# Required for models hosted on NVIDIA NIM
-NVIDIA_API_KEY='your-nvidia-nim-api-key'
 
 # Required for 智谱 (Zhipu) models
 # Prefer ZHIPU_API_KEY; ZHIPUAI_API_KEY is also accepted for compatibility
@@ -121,44 +85,18 @@ ZHIPU_API_KEY='your-zhipu-api-key'
 # ZHIPUAI_API_KEY='your-zhipu-api-key'
 ```
 
-## 🤖 Supported LLM Models
+## 🤖You can add Supported LLM Models 
 
 PhIDO supports multiple LLM providers through the `llm_api.py` module, LLM selection is configured at the beginning of `webapp.py` script. The user may run different LLMs at each step of PhIDO, provided that the models' API keys are configured within the environmental variables:
 
-### OpenAI Models
-- **GPT-4o** - General purpose reasoning `gpt-4o`
-- **o1** - (Default) Specialized for reasoning tasks `o1`
-- **o3-mini** - Faster reasoning model `o3-mini`
-- **Environment Variable**: `OPENAI_API_KEY`
 
-### Anthropic Models
-- **Claude-3-7-Sonnet-20250219** - Balanced performance and speed `claude-3-7-sonnet-latest`
-- **Claude-4.0-Opus** - Advanced reasoning capabilities `claude-opus-4-20250514`
-- **Environment Variable**: `ANTHROPIC_API_KEY`
+### Zhipu (GLM) Models
+- **glm-4** - Latest GLM-4 text/chat model for general-purpose generation and reasoning `glm-4`
+- **chatglm_turbo** - Faster chat-oriented model with lower latency `chatglm_turbo`
+- **Environment Variable**: `ZHIPU_API_KEY` (compatible with `ZHIPUAI_API_KEY`)
 
-### Google Models
-- **Gemini-2.5-Pro** - Advanced reasoning and code generation `gemini-2.5-pro`
-- **Gemini-1.5-Pro** - General purpose reasoning `gemini-1.5-pro`
-- **Gemini-1.5-Flash** - Fast response model `gemini-1.5-flash`
-- **Gemini-2.0-Flash** - Latest flash model `gemini-2.0-flash`
-- **Environment Variable**: `GOOGLEGENAI_API_KEY`
-
-### NVIDIA Models (via NVIDIA NIM API)
-- **nvidia/llama-3.1-nemotron-ultra-253b-v1** - Large-scale reasoning `nvidia/llama-3.1-nemotron-ultra-253b-v1`
-- **nvidia/nemotron-4-340b-instruct** - Alternative Nemotron model (Deprecated on NIM) `nvidia/nemotron-4-340b-instruct`
-- **Environment Variable**: `NVIDIA_API_KEY` 
-
-### DeepSeek Models
-- **DeepSeek-Reasoner** - Specialized reasoning model `deepseek-reasoner`
-- **Environment Variable**: `DEEPSEEK_API_KEY` 
-
-### 智谱 (Zhipu / GLM) Models
-- **glm-4** - 最新的 GLM-4 文本/对话模型，适用于一般生成与推理任务 `glm-4`
-- **chatglm_turbo** - 更快的对话模型，延迟更低 `chatglm_turbo`
-- **Environment Variable**: `ZHIPU_API_KEY` (兼容 `ZHIPUAI_API_KEY`)
-
-**Note that** `OPENAI_API_KEY` **must be set in addition to any other model api key as PhIDO uses GPT models for formatting entity extraction results via pydantic.**
-Other models not listed above but offered by API providers above may also work but have not been tested. 
+**Note that** `ZHIPU_API_KEY` **must be set in addition to any other model API key because PhIDO uses GLM models for formatting entity extraction results via pydantic.**
+Other provider models not listed here may still work but have not been verified. 
 
 ## 🔄 Workflow Modes
 
@@ -352,53 +290,17 @@ Ignore the pip dependency resolver conflict with gdsfactory 8.8.5.
 If you encounter a logger error, create a ```log``` folder under ```PhIDO-Release/PhotonicsAI```.
 
 ## 🤝 Contributing
-
-## 📢 发布说明（2025-11-03）
-
-本次更新聚焦于端到端稳定性提升与常见错误的自愈处理，核心变化如下：
-
-- 修复与改进
-   - 参数过滤与兼容：在生成 GDSFactory netlist 时，对每个实例的设置项做“允许参数白名单”过滤（基于 PDK 反射与 DesignLibrary 函数签名双重推断），自动剔除组件不接受的参数（如 `waveguide_width`），避免 `TypeError: unexpected keyword argument`。
-   - 端口与命名映射：从 DOT 节点标签中解析 DSL 节点 id，建立 DOT→DSL 映射，修复顶层 `ports` 使用 DOT 名（如 `C1`）而实例名为 DSL 名（如 `N1`）导致的构建失败（`'C1' not in ['N1']`）。
-   - 端口数量兜底：若从 DOT 未能推断到≥2个外部端口，自动回退暴露至少两个端口（优先选用首/尾节点），避免 SAX 报错 `at least 2 ports need to be defined`。
-   - 结构化输出解析更稳健：优先严格 JSON 解析，失败再走 YAML 兜底；自动剥离 Markdown 代码围栏，遇到包含冒号的叙述性字段自动加引号或转为 block scalar，降低 YAML 解析失败概率。
-   - DOT 清洗与布局兜底：清理 DOT 中的代码围栏/注释，补齐/配平大括号；解析失败时将无效 DOT 存入 `build/invalid_dot_*.dot` 以便诊断；坐标提取失败时回退到线性布置，保证后续流程不中断。
-   - 端口解析健壮性：开放端口提取允许端点中包含额外冒号（如方位后缀），避免 `too many values to unpack`。
-
-- 稳定性与体验
-   - 组件选择阶段：操作按钮（提交/自动选择/重置）始终可见，不因模板缺失而阻塞流程。
-   - 放置与别名：根据 DOT label 中的 DSL id 建立别名坐标，大小写不敏感匹配，避免 `KeyError`（如 `A` vs `N1`）。
-   - netlist 转换：对缺失 `placement` 的节点提供回退坐标，避免 `KeyError: 'placement'`。
-
-- 使用提示
-   - 启动：
-      - 本地：`streamlit run PhotonicsAI/Photon/webapp.py`
-      - 远程访问：建议使用 `--server.address 0.0.0.0 --server.port 8501` 并开放/转发端口。
-   - API Key：`.env` 中配置 `ZHIPU_API_KEY`；`OPENAI_API_KEY` 可选（部分步骤用作严格结构化解析）。
-
-- 兼容性
-   - 对现有 DSL/模板保持向后兼容；如需让 `mzi_2x2_heater_tin_cband` 支持可调宽度，可在组件中新增参数（例如 `width`），当前默认宽度不变。
-
-- 已知问题
-   - 若 LLM 输出夹带自然语言/Markdown，仍可能触发兜底路径；建议使用纯 JSON/DOT 输出以发挥最佳稳定性。
-   - 生成的无效 DOT 会保存在 `build/invalid_dot_*.dot`，可用于后续提示工程与清洗策略优化。
-
-更多细节请参考 `PhotonicsAI/Photon/utils.py` 与 `PhotonicsAI/Photon/llm_api.py` 的注释与实现。
-
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
 - Built with Streamlit for the web interface
-- Powered by various LLM providers (OpenAI, Anthropic, Google, NVIDIA)
+- Powered by various LLM providers 
 - Uses GDSFactory for photonic layout generation
 - Integrates with SAX for circuit simulations
 - KLayout for Design Rule Checking
