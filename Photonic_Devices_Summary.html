@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhIDO 光子器件设计库 - 新增器件清单与分类</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #1f4788;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            border-bottom: 3px solid #1f4788;
+            padding-bottom: 15px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #2c5aa0;
+            font-size: 1.2em;
+            margin-bottom: 30px;
+            font-weight: 500;
+        }
+        
+        .meta-info {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 0.95em;
+        }
+        
+        h2 {
+            color: #d32f2f;
+            margin-top: 35px;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            padding-left: 15px;
+            border-left: 5px solid #d32f2f;
+            background: linear-gradient(90deg, #fff5f5 0%, transparent 100%);
+            padding: 10px 15px;
+        }
+        
+        .category-icon {
+            font-size: 1.3em;
+            margin-right: 8px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background: white;
+        }
+        
+        thead {
+            background: linear-gradient(135deg, #1f4788 0%, #2c5aa0 100%);
+            color: white;
+        }
+        
+        th {
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.95em;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 0.9em;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        
+        tbody tr:hover {
+            background-color: #e3f2fd;
+            transition: background-color 0.3s ease;
+        }
+        
+        .summary-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 40px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        
+        .summary-box h2 {
+            color: white;
+            border-left: 5px solid white;
+            margin-top: 0;
+            background: transparent;
+        }
+        
+        .summary-box ul {
+            list-style: none;
+            padding: 0;
+            margin: 15px 0 0 0;
+        }
+        
+        .summary-box li {
+            padding: 8px 0;
+            font-size: 1.1em;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .summary-box li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .footer a {
+            color: #1f4788;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            
+            .container {
+                box-shadow: none;
+                padding: 0;
+            }
+            
+            h2 {
+                page-break-after: avoid;
+            }
+            
+            table {
+                page-break-inside: avoid;
+            }
+            
+            thead {
+                display: table-header-group;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PhIDO Photonic Devices Library</h1>
+        <div class="subtitle">光子器件设计库 - 新增器件清单与分类</div>
+        <div class="meta-info">
+            Generated: February 24, 2026<br>
+            Repository: PhIDO - Photonic Integrated Device Ontology
+        </div>
+
+        <!-- RF Photonics -->
+        <h2><span class="category-icon">📡</span>射频/微波光子器件 (RF Photonics)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>SOI微波相移器<br><small>SOI Microwave Phase Shifter</small></td>
+                    <td><code>soi_microwave_phase_shifter.py</code></td>
+                    <td>IEEE Photonics Journal</td>
+                    <td>DC-40+ GHz, 0-360°</td>
+                </tr>
+                <tr>
+                    <td>光子微波混频器<br><small>Photonic Microwave Mixer</small></td>
+                    <td><code>photonic_microwave_mixer.py</code></td>
+                    <td>JLT 2020</td>
+                    <td>频率变换, SFDR优化<br><small>Frequency conversion, SFDR</small></td>
+                </tr>
+                <tr>
+                    <td>Si₃N₄射频波束成形<br><small>Si₃N₄ RF Beamformer</small></td>
+                    <td><code>rf_beamformer_sin.py</code></td>
+                    <td>IEEE</td>
+                    <td>K波段, 2D波束控制<br><small>K-band, 2D beam control</small></td>
+                </tr>
+                <tr>
+                    <td>环辅助MZM<br><small>Ring-Assisted MZM</small></td>
+                    <td><code>ring_assisted_mzm.py</code></td>
+                    <td>arXiv:2110.02737</td>
+                    <td>+18dB SFDR</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- High-Speed Modulators -->
+        <h2><span class="category-icon">⚡</span>高速调制器 (High-Speed Modulators)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>高功率LN MZM<br><small>High-Power LN MZM</small></td>
+                    <td><code>high_power_ln_mzm.py</code></td>
+                    <td>arXiv:2210.14785</td>
+                    <td>110GHz, 110mW</td>
+                </tr>
+                <tr>
+                    <td>PAM-4调制器<br><small>PAM-4 Modulator</small></td>
+                    <td><code>pam4_mzm.py</code></td>
+                    <td>JLT 2019</td>
+                    <td>100+ Gb/s, 4电平<br><small>4-level</small></td>
+                </tr>
+                <tr>
+                    <td>分段式MZM<br><small>Segmented MZM</small></td>
+                    <td><code>segmented_mzm_distributed_driver.py</code></td>
+                    <td>IEEE (UCSB)</td>
+                    <td>5段+45nm CMOS<br><small>5-segment + 45nm CMOS</small></td>
+                </tr>
+                <tr>
+                    <td>混合Si/LN MZM<br><small>Hybrid Si/LN MZM</small></td>
+                    <td><code>hybrid_ln_mzm.py</code></td>
+                    <td>arXiv</td>
+                    <td>高带宽EO调制<br><small>High-bandwidth EO</small></td>
+                </tr>
+                <tr>
+                    <td>SOH调制器<br><small>SOH Modulator</small></td>
+                    <td><code>soh_modulator.py</code></td>
+                    <td>IEEE</td>
+                    <td>有机高速调制<br><small>Organic high-speed</small></td>
+                </tr>
+                <tr>
+                    <td>等离子体调制器<br><small>Plasmonic Modulator</small></td>
+                    <td><code>plasmonic_modulator.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>超紧凑, >100GHz<br><small>Ultra-compact</small></td>
+                </tr>
+                <tr>
+                    <td>2µm MZM<br><small>2µm MZM</small></td>
+                    <td><code>mzm_2um.py</code></td>
+                    <td>Photonics Research 2021</td>
+                    <td>扩展波长<br><small>Extended wavelength</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Programmable Photonics -->
+        <h2><span class="category-icon">🔄</span>可编程/可重构器件 (Programmable Photonics)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>MEMS锁存PPIC<br><small>MEMS Latching PPIC</small></td>
+                    <td><code>mems_latching_ppic.py</code></td>
+                    <td>arXiv:2601.06578</td>
+                    <td>零功耗保持<br><small>Zero-hold power</small></td>
+                </tr>
+                <tr>
+                    <td>MEMS锁存MZI<br><small>MEMS Latching MZI</small></td>
+                    <td><code>mems_latching_mzi.py</code></td>
+                    <td>IEEE</td>
+                    <td>非易失性开关<br><small>Non-volatile switch</small></td>
+                </tr>
+                <tr>
+                    <td>MZI晶格滤波器<br><small>MZI Lattice Filter</small></td>
+                    <td><code>mzi_lattice_filter.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>FIR/IIR滤波<br><small>FIR/IIR filtering</small></td>
+                </tr>
+                <tr>
+                    <td>MEMS环形DWDM<br><small>MEMS Ring DWDM</small></td>
+                    <td><code>mems_ring_dwdm.py</code></td>
+                    <td>IEEE</td>
+                    <td>可调DWDM<br><small>Tunable DWDM</small></td>
+                </tr>
+                <tr>
+                    <td>PCM 7位环<br><small>PCM 7-bit Ring</small></td>
+                    <td><code>pcm_ring_7bit.py</code></td>
+                    <td>arXiv:2412.07447</td>
+                    <td>127级, Sb₂S₃<br><small>127 levels</small></td>
+                </tr>
+                <tr>
+                    <td>PCM可调环<br><small>PCM Tunable Ring</small></td>
+                    <td><code>pcm_tunable_ring.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>相变存储调谐<br><small>Phase-change tuning</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Couplers & Splitters -->
+        <h2><span class="category-icon">🔗</span>耦合器/分束器 (Couplers & Splitters)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>反向设计MMI<br><small>Inverse Design MMI</small></td>
+                    <td><code>inverse_design_mmi.py</code></td>
+                    <td>IEEE</td>
+                    <td>拓扑优化, 超紧凑<br><small>Topology optimized</small></td>
+                </tr>
+                <tr>
+                    <td>FAQUAD耦合器<br><small>FAQUAD Coupler</small></td>
+                    <td><code>faquad_coupler.py</code></td>
+                    <td>IEEE/Optica</td>
+                    <td>快速准绝热<br><small>Fast quasi-adiabatic</small></td>
+                </tr>
+                <tr>
+                    <td>SWG绝热耦合器<br><small>SWG Adiabatic Coupler</small></td>
+                    <td><code>swg_adiabatic_coupler.py</code></td>
+                    <td>Opt. Letters 2018</td>
+                    <td>>100nm带宽<br><small>>100nm bandwidth</small></td>
+                </tr>
+                <tr>
+                    <td>III-V/Si激光耦合器<br><small>III-V/Si Laser Coupler</small></td>
+                    <td><code>hybrid_iii_v_laser_coupler.py</code></td>
+                    <td>IEEE JSTQE 2015</td>
+                    <td>>90%效率<br><small>>90% efficiency</small></td>
+                </tr>
+                <tr>
+                    <td>III-V/Si耦合器<br><small>III-V/Si Coupler</small></td>
+                    <td><code>iii_v_si_coupler.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>异质集成<br><small>Heterogeneous integration</small></td>
+                </tr>
+                <tr>
+                    <td>LNOI MMI分束器<br><small>LNOI MMI Splitter</small></td>
+                    <td><code>lnoi_mmi_splitter.py</code></td>
+                    <td>IEEE 2023</td>
+                    <td>50:50, EO兼容<br><small>EO compatible</small></td>
+                </tr>
+                <tr>
+                    <td>弯曲DC<br><small>Bent DC</small></td>
+                    <td><code>bent_dc.py</code></td>
+                    <td>IEEE</td>
+                    <td>紧凑, 低损耗<br><small>Compact, low loss</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Polarization Devices -->
+        <h2><span class="category-icon">🎯</span>偏振器件 (Polarization Devices)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Bragg光栅PBS<br><small>Bragg Grating PBS</small></td>
+                    <td><code>bragg_grating_pbs.py</code></td>
+                    <td>IEEE</td>
+                    <td>形状优化, 宽带<br><small>Shape optimized, broadband</small></td>
+                </tr>
+                <tr>
+                    <td>硅PBS<br><small>Silicon PBS</small></td>
+                    <td><code>si_pbs.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>TE/TM分离<br><small>TE/TM separation</small></td>
+                </tr>
+                <tr>
+                    <td>SWG模式复用器<br><small>SWG Mode Mux</small></td>
+                    <td><code>swg_mode_mux.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>模式转换<br><small>Mode conversion</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Filters & Resonators -->
+        <h2><span class="category-icon">🔬</span>滤波器/谐振器 (Filters & Resonators)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>无热DWDM滤波器<br><small>Athermal DWDM Filter</small></td>
+                    <td><code>athermal_dwdm_filter.py</code></td>
+                    <td>Heliyon 2022</td>
+                    <td>6阶, 偏振无关<br><small>6th-order, polarization-insensitive</small></td>
+                </tr>
+                <tr>
+                    <td>SiN环交织器<br><small>SiN Ring Interleaver</small></td>
+                    <td><code>sin_ring_interleaver.py</code></td>
+                    <td>IEEE</td>
+                    <td>平顶响应<br><small>Flat-top response</small></td>
+                </tr>
+                <tr>
+                    <td>CROW开关<br><small>CROW Switch</small></td>
+                    <td><code>crow_switch.py</code></td>
+                    <td>arXiv:2402.10673</td>
+                    <td>Kerr对称破缺<br><small>Kerr symmetry breaking</small></td>
+                </tr>
+                <tr>
+                    <td>ScAlN环<br><small>ScAlN Ring</small></td>
+                    <td><code>scaln_ring.py</code></td>
+                    <td>arXiv</td>
+                    <td>CMOS兼容压电<br><small>CMOS-compatible piezoelectric</small></td>
+                </tr>
+                <tr>
+                    <td>LNOI环<br><small>LNOI Ring</small></td>
+                    <td><code>lnoi_ring.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>EO调谐<br><small>EO tuning</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Light Sources -->
+        <h2><span class="category-icon">💡</span>光源/激光器 (Light Sources)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>GaAs环形激光器<br><small>GaAs Ring Laser</small></td>
+                    <td><code>gaas_ring_laser.py</code></td>
+                    <td>IEEE</td>
+                    <td>III-V集成<br><small>III-V integration</small></td>
+                </tr>
+                <tr>
+                    <td>可见光ECL<br><small>Visible ECL</small></td>
+                    <td><code>ecl_visible.py</code></td>
+                    <td>arXiv</td>
+                    <td>637nm, 量子应用<br><small>Quantum applications</small></td>
+                </tr>
+                <tr>
+                    <td>Si₃N₄压缩光环<br><small>Si₃N₄ Squeezed Ring</small></td>
+                    <td><code>si3n4_squeezed_ring.py</code></td>
+                    <td>arXiv</td>
+                    <td>-4.7dB压缩<br><small>-4.7dB squeezing</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Computing & Sensing -->
+        <h2><span class="category-icon">📊</span>计算/传感器件 (Computing & Sensing)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>QUBO光子求解器<br><small>QUBO Photonic Solver</small></td>
+                    <td><code>qubo_photonic_solver.py</code></td>
+                    <td>arXiv:2407.04713</td>
+                    <td>16通道, 2 TFLOP/s<br><small>16-channel</small></td>
+                </tr>
+                <tr>
+                    <td>多波束OPA<br><small>Multi-beam OPA</small></td>
+                    <td><code>multibeam_opa.py</code></td>
+                    <td>arXiv:2510.13608</td>
+                    <td>OWC, 54Gbps/用户<br><small>54Gbps/user</small></td>
+                </tr>
+                <tr>
+                    <td>中红外气体传感器<br><small>Mid-IR Gas Sensor</small></td>
+                    <td><code>midir_gas_sensor.py</code></td>
+                    <td>IEEE Sensors 2020</td>
+                    <td>硫系玻璃, 3-10µm<br><small>Chalcogenide glass</small></td>
+                </tr>
+                <tr>
+                    <td>FBG询问器<br><small>FBG Interrogator</small></td>
+                    <td><code>fbg_interrogator.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>光纤传感<br><small>Fiber sensing</small></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Special & Novel Devices -->
+        <h2><span class="category-icon">🌡️</span>特殊环境/新型器件 (Special & Novel Devices)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 23%">器件名 / Device Name</th>
+                    <th style="width: 28%">文件 / File</th>
+                    <th style="width: 22%">论文来源 / Paper Source</th>
+                    <th style="width: 27%">关键参数 / Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>低温AlN MZM<br><small>Cryogenic AlN MZM</small></td>
+                    <td><code>cryogenic_aln_mzm.py</code></td>
+                    <td>Nature Photonics</td>
+                    <td>4K兼容, 压电<br><small>4K compatible, piezoelectric</small></td>
+                </tr>
+                <tr>
+                    <td>SAW SiN调制器<br><small>SAW SiN Modulator</small></td>
+                    <td><code>saw_sin_modulator.py</code></td>
+                    <td>arXiv</td>
+                    <td>热弹性声光<br><small>Thermo-elastic acousto-optic</small></td>
+                </tr>
+                <tr>
+                    <td>可见光SiN MMI<br><small>Visible SiN MMI</small></td>
+                    <td><code>sin_visible_mmi.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>637nm, 可见光<br><small>Visible light</small></td>
+                </tr>
+                <tr>
+                    <td>TFLN交叉<br><small>TFLN Crossing</small></td>
+                    <td><code>tfln_crossing.py</code></td>
+                    <td>多文献<br><small>Multiple refs</small></td>
+                    <td>薄膜铌酸锂<br><small>Thin-film lithium niobate</small></td>
+                </tr>
+                <tr>
+                    <td>石墨烯WDM接收器<br><small>Graphene WDM Receiver</small></td>
+                    <td><code>graphene_wdm_receiver.py</code></td>
+                    <td>arXiv</td>
+                    <td>4×16Gbps, 67GHz</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Summary Statistics -->
+        <div class="summary-box">
+            <h2><span class="category-icon">📈</span>统计汇总 / Summary Statistics</h2>
+            <ul>
+                <li><strong>新增器件总数 (Total New Devices):</strong> ~45个</li>
+                <li><strong>涵盖论文 (Papers Covered):</strong> ~35篇</li>
+                <li><strong>器件类别 (Device Categories):</strong> 10大类</li>
+            </ul>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <strong>PhIDO - Photonic Integrated Device Ontology</strong><br>
+            Design Library Summary | Generated from DesignLibrary/<br>
+            For more information, visit the PhIDO repository<br>
+            <em>Generated: February 24, 2026</em>
+        </div>
+    </div>
+
+    <script>
+        // Add print button functionality
+        window.onload = function() {
+            console.log('PhIDO Photonic Devices Summary loaded successfully');
+            console.log('To save as PDF: Press Ctrl+P or use File > Print, then select "Save as PDF"');
+        };
+    </script>
+</body>
+</html>

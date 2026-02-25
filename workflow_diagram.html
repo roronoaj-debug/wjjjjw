@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhIDO 完整工作流程图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 100%;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .info {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PhIDO 完整工作流程图</h1>
+        <p class="info">基于所有流程相关问题的完整梳理 - 精确到函数级别 | 2026-02-12</p>
+        
+        <div class="mermaid">
+graph TD
+    Start[用户输入电路描述] --> ModeSelect{选择模式}
+    
+    ModeSelect -->|Step-by-Step| StepMode[分步模式<br/>session.step_by_step_mode=True]
+    ModeSelect -->|Automatic| AutoMode[自动模式<br/>session.step_by_step_mode=False]
+    
+    %% 自动模式主流程
+    AutoMode --> P0_Intent[Phase 0: 意图分类<br/>llm_api.intent_classification]
+    P0_Intent -->|category_id=1| P1_Start
+    P0_Intent -->|category_id!=1| Reject[拒绝处理<br/>非光子电路任务]
+    
+    P1_Start[Phase 1: 实体抽取<br/>session.entity_extraction_complete=False]
+    P1_Start --> P1_Extract[llm_api.entity_extraction<br/>template: sp_normal ≤1000字符<br/>sp_paper >1000字符]
+    P1_Extract --> P1_Result[生成pretemplate<br/>session.p200_pretemplate]
+    P1_Result --> P1_Pre[llm_api.preschematic<br/>使用prompts.yaml:dot_simple]
+    P1_Pre --> P1_PreResult[session.p200_preschematic<br/>初始DOT图]
+    
+    P1_PreResult --> P2_Search[Phase 2: 组件/模板检索<br/>llm_api.llm_search]
+    P2_Search --> P2_CompSearch[组件搜索<br/>遍历components_list<br/>生成session.p200_componenets_search_r]
+    P2_Search --> P2_TempSearch[模板搜索<br/>搜索templates_dict<br/>生成session.p200_retreived_templates]
+    
+    P2_CompSearch --> P2_UI[Phase 2.5: UI选择<br/>session.component_search_complete=False]
+    P2_TempSearch --> P2_UI
+    
+    P2_UI --> P2_Select{用户选择}
+    P2_Select -->|选择组件| P2_CompSelected[组件路径<br/>session.components_selected=True<br/>session.p200_selected_components]
+    P2_Select -->|选择模板| P2_TempSelected[模板路径<br/>session.template_selected=True<br/>session.p200_selected_template]
+    P2_Select -->|自动选择| P2_AutoSelect[auto-select best matches<br/>优先exact score]
+    
+    P2_AutoSelect --> P2_CompSelected
+    
+    P2_CompSelected --> P3_CompPath[Phase 3: DSL生成-组件路径]
+    P2_TempSelected --> P3_TempPath[Phase 3: DSL生成-模板路径]
+    
+    %% 组件路径
+    P3_CompPath --> P3_CompMap[map_pretemplate_to_template<br/>直接构建Circuit DSL<br/>无需用户输入specs]
+    P3_CompMap --> P3_CompDSL[session.p300_circuit_dsl<br/>YAML格式]
+    
+    %% 模板路径
+    P3_TempPath --> P3_TempUI[UI输入specifications<br/>用户手动输入参数值]
+    P3_TempUI --> P3_Parse[llm_api.parse_user_specs<br/>验证类型/范围/格式<br/>LLM检查兼容性]
+    P3_Parse --> P3_TempDSL[templates_dict + parsed_spec<br/>session.p300_circuit_dsl]
+    
+    P3_CompDSL --> P4_Start
+    P3_TempDSL --> P4_Start
+    
+    %% Phase 4: 原理图生成
+    P4_Start[Phase 4: 原理图生成<br/>session.schematic_complete=False]
+    P4_Start --> P4_Ports[get_ports_info<br/>提取组件端口信息]
+    P4_Ports --> P4_Params[get_params<br/>提取组件参数]
+    P4_Params --> P4_Settings{是否模板路径?}
+    
+    P4_Settings -->|组件路径| P4_Apply[llm_api.apply_settings<br/>LLM生成参数值]
+    P4_Settings -->|模板路径| P4_Skip[跳过apply_settings<br/>已有用户specs]
+    
+    P4_Apply --> P4_Dot
+    P4_Skip --> P4_Dot
+    
+    P4_Dot[utils.circuit_to_dot<br/>Circuit DSL → DOT string]
+    P4_Dot --> P4_Edges{选择边生成策略}
+    
+    P4_Edges -->|组件路径| P4_EdgeComp[llm_api.dot_add_edges<br/>AI生成边连接]
+    P4_Edges -->|模板路径| P4_EdgeTemp[llm_api.dot_add_edges_templates<br/>模板特定边生成]
+    
+    P4_EdgeComp --> P4_Verify[llm_api.dot_verify<br/>验证DOT语法]
+    P4_EdgeTemp --> P4_Verify
+    
+    P4_Verify --> P4_Planar[utils.dot_planarity<br/>检测交叉边]
+    P4_Planar -->|有交叉| P4_Fix[llm_api.dot_add_edges_errorfunc<br/>迭代修复最多4次]
+    P4_Planar -->|无交叉| P4_EdgeDone
+    P4_Fix --> P4_Verify
+    
+    P4_EdgeDone[session.p300_dot_string]
+    P4_EdgeDone --> P4_YamlEdge[utils.edges_dot_to_yaml<br/>DOT → Circuit DSL edges]
+    P4_YamlEdge --> P4_Footprint[footprint_netlist<br/>获取组件尺寸footprints]
+    P4_Footprint --> P4_Scale[utils.dot_add_node_sizes<br/>添加节点尺寸到DOT]
+    P4_Scale --> P4_Multiply[utils.multiply_node_dimensions<br/>缩放×0.01]
+    P4_Multiply --> P4_Graphviz[utils.get_graphviz_placements<br/>调用Graphviz计算坐标]
+    P4_Graphviz --> P4_Multiply2[utils.multiply_node_dimensions<br/>缩放×100/72]
+    P4_Multiply2 --> P4_AddPlace[utils.add_placements_to_dsl<br/>placements写入DSL]
+    P4_AddPlace --> P4_FinalPorts[utils.add_final_ports<br/>添加最终端口]
+    P4_FinalPorts --> P4_Complete[session.schematic_complete=True<br/>session.p300_circuit_dsl完整版]
+    
+    %% Phase 5: 版图与仿真
+    P4_Complete --> P5_Start[Phase 5: 版图与仿真]
+    P5_Start --> P5_Convert[utils.dsl_to_gf<br/>Circuit DSL → GDSFactory Netlist<br/>参数过滤+lru_cache优化]
+    P5_Convert --> P5_GDS[yaml_netlist_to_gds<br/>session.p400_gf_netlist]
+    
+    P5_GDS --> P5_Read[gf.read.from_yaml<br/>生成GDS Component c]
+    P5_Read --> P5_Netlist[c.get_netlist recursive=True<br/>递归netlist]
+    P5_Netlist --> P5_SAX[sax.circuit<br/>构建仿真模型<br/>session.p400_sax_circuit]
+    P5_SAX --> P5_Plot[c.plot<br/>GDS可视化<br/>session.p400_gdsfig]
+    
+    %% 三条并行路径
+    P5_Plot --> P5_Parallel{三条并行路径}
+    
+    P5_Parallel --> P5_Sim[路径A: SAX仿真<br/>❌不需要GDS文件]
+    P5_Parallel --> P5_Display[路径B: GDS显示<br/>❌不需要GDS文件]
+    P5_Parallel --> P5_DRC[路径C: DRC检查<br/>✅需要GDS文件]
+    
+    P5_Sim --> P5_SimRun[wl扫描1.5-1.6μm<br/>session.p400_sax_circuit wl<br/>使用预计算FDTD模型]
+    P5_SimRun --> P5_SimPlot[utils.plot_dict_arrays<br/>绘制S参数<br/>build/plot_sax.png]
+    
+    P5_Display --> P5_DisplayShow[st.pyplot session.p400_gdsfig<br/>Matplotlib显示]
+    
+    P5_DRC --> P5_Write[c.write_gds<br/>写入./drc/placeholder.gds]
+    P5_Write -->|成功| P5_DRCRun
+    P5_Write -->|大层号错误| P5_Flatten[c.flatten.write_gds<br/>尝试flatten]
+    P5_Flatten -->|失败| P5_Skip[skip_drc=True<br/>跳过DRC]
+    P5_Flatten -->|成功| P5_DRCRun
+    
+    P5_DRCRun[run_drc<br/>KLayout批处理]
+    P5_DRCRun --> P5_KLayout[klayout -b -r drc_script.drc<br/>执行设计规则检查]
+    P5_KLayout --> P5_Report[生成report.lydrb<br/>违规报告]
+    
+    P5_SimPlot --> P5_Opt
+    P5_DisplayShow --> P5_Opt
+    P5_Report --> P5_Opt
+    P5_Skip --> P5_Opt
+    
+    P5_Opt{是否优化?<br/>optimize_flag}
+    P5_Opt -->|禁用| P5_Done
+    P5_Opt -->|启用| P5_OptRun[circuit_optimizer<br/>调整自由参数<br/>当前强制=0]
+    P5_OptRun --> P5_Done
+    
+    P5_Done[工作流完成<br/>Token统计<br/>运行时间记录]
+    
+    %% 分步模式单独分支
+    StepMode --> Step1[Step 1: Entity Extraction<br/>手动输入描述]
+    Step1 --> Step2[Step 2: Component Specification<br/>选择组件/模板]
+    Step2 --> Step3[Step 3: Circuit DSL Creation<br/>手动编辑pretemplate]
+    Step3 --> Step4[Step 4: Schematic Generation<br/>可选custom preschematic]
+    Step4 --> Step5[Step 5: Layout & Simulation<br/>手动提供Circuit DSL]
+    Step5 --> StepDone[各步独立执行<br/>结果保存在session.step_results]
+    
+    %% 关键数据流标注
+    classDef phaseClass fill:#e1f5ff,stroke:#0066cc,stroke-width:3px
+    classDef llmClass fill:#fff4e1,stroke:#ff9900,stroke-width:2px
+    classDef dataClass fill:#e8f5e8,stroke:#00aa00,stroke-width:2px
+    classDef pathClass fill:#ffe8f0,stroke:#cc0066,stroke-width:2px
+    
+    class P0_Intent,P1_Extract,P1_Pre,P2_Search,P3_Parse,P4_Apply,P4_EdgeComp,P4_EdgeTemp,P4_Fix llmClass
+    class P1_Result,P1_PreResult,P2_CompSearch,P2_TempSearch,P3_CompDSL,P3_TempDSL,P4_Complete,P5_SAX dataClass
+    class P2_CompSelected,P2_TempSelected,P3_CompPath,P3_TempPath pathClass
+    class P1_Start,P2_UI,P4_Start,P5_Start phaseClass
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+        mermaid.contentLoaded();
+    </script>
+</body>
+</html>
