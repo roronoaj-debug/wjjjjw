@@ -1,0 +1,14 @@
+
+import gdsfactory as gf
+
+@gf.cell
+def auto_waveguide_crossing_Broadbandlowlossandu_924(
+    width: float = 0.5,
+) -> gf.Component:
+    """Auto-generated Crossing from: Broadband lowlossand ultra-lowcrosstalkwaveguidecrossingsbased on multimode interferometer for 840 nm operation
+    Source: https://arxiv.org/abs/2002.11399
+    """
+    c = gf.Component()
+    ref = c << gf.components.crossing(width=width)
+    c.add_ports(ref.ports)
+    return c
