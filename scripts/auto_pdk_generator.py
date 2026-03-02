@@ -20,22 +20,22 @@ OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file
 DEVICE_keywords = {
     # --- Active Devices ---
     "ge_pd": [
-        "Germanium photodetector silicon photonics",
+        "Germanium photodetector bandwidth",
         "GePD waveguide integrated",
     ],
     "si_modulator": [
         "Silicon Mach-Zehnder modulator",
-        "silicon optical modulator design",
+        "silicon travelling wave modulator",
     ],
     "si_phase_shifter": [
         "thermo-optic phase shifter silicon",
-        "silicon phase shifter simulation",
+        "silicon photonic heater",
     ],
     
     # --- Passive Devices (Si & SiN MMI) ---
     "mmi1x2": [
-        "multimode interferometer splitter",
-        "1x2 MMI silicon photonics",
+        "1x2 MMI silicon photonics splitter",
+        "multimode interferometer 1x2 design",
     ],
     "mmi2x2": [
         "2x2 MMI coupler silicon",
@@ -44,27 +44,27 @@ DEVICE_keywords = {
     
     # --- Crossings & Couplers ---
     "waveguide_crossing": [
-        "waveguide crossing silicon photonics",
+        "silicon waveguide crossing loss",
     ],
     "directional_coupler": [
-        "directional coupler silicon",
-        "silicon waveguide coupler",
+        "silicon directional coupler design",
+        "directional coupler splitting ratio",
     ],
     
     # --- IO Couplers ---
     "grating_coupler": [
-        "silicon grating coupler design",
-        "fiber chip coupling efficiency",
+        "silicon grating coupler efficiency",
+        "focusing grating coupler design",
     ],
     "edge_coupler": [
-        "edge coupler silicon photonics",
-        "inverse taper spot size converter",
+        "spot size converter silicon photonics",
+        "inverse taper coupling efficiency",
     ],
     
     # --- Polarization ---
     "pbs_pbr": [
         "polarization beam splitter silicon",
-        "polarization rotator silicon photonics",
+        "polarization rotator integrated photonics",
     ]
 }
 

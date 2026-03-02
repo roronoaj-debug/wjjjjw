@@ -70,9 +70,9 @@ def import_models(module_names):
     for module_name in module_names:
         full_module_name = f"PhotonicsAI.KnowledgeBase.DesignLibrary.{module_name}"
         module = importlib.import_module(full_module_name)
-        func = module.get_model
-        models_dict.update(func())
-        # globals()[module_name] = func()
+        if hasattr(module, "get_model"):
+            func = module.get_model
+            models_dict.update(func())
     return models_dict
 
 
