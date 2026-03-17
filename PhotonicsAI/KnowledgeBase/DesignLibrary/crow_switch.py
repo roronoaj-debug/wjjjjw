@@ -117,6 +117,12 @@ def crow_photonic_switch(
     return c
 
 
+# Alias for DemoPDK import compatibility
+def crow_switch(**kwargs):
+    """Alias for crow_photonic_switch."""
+    return crow_photonic_switch(**kwargs)
+
+
 def get_model():
     """
     Returns SAX-compatible analytical model for the CROW photonic switch.
@@ -127,7 +133,7 @@ def get_model():
     - Symmetry breaking states
     """
     
-    def crow_switch_model(
+    def crow_photonic_switch_model(
         wl: float = 1.55,
         num_rings: int = 3,
         radius_um: float = 20.0,
@@ -224,7 +230,7 @@ def get_model():
             "num_rings": num_rings,
         }
     
-    return crow_switch_model
+    return {"crow_photonic_switch": crow_photonic_switch_model, "crow_switch": crow_photonic_switch_model}
 
 
 # Test code

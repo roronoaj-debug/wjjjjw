@@ -571,3 +571,51 @@ absorb_settings: |
 #   This graph has crossing edges. Modify the edges to fix this. Do not modify the Nodes or the ports.
 #   You can add comments to the code to understand the ports and how the edges should be modifies.
 #   Do not output any text outside the dot code. Do not preamble with "```dot".
+
+entity_extraction_with_intent: |
+  You are an expert photonic circuit architect. 
+  Your task is to analyze the user's input and extract technical specifications.
+  
+  CRITICAL: You must classify the user's INTENT into one of two modes:
+  1. "single_component": The user wants to design/optimize a SINGLE device (e.g. "Design a 1x2 MMI", "I need a ring resonator").
+  2. "circuit_routing": The user wants to connect multiple devices (e.g. "Connect laser to modulator", "MZI cascading").
+
+  Output a JSON object with the following fields:
+  
+  design_type: "single_component" or "circuit_routing"
+
+  title: A concise title describing the function of the photonic circuit/device based on the input text.
+
+  components_list: Extract a list of components mentioned in the input text.
+  This list must contain at least one component. For each component:
+  - Include all provided specifications and descriptions, if any.
+  - Include the number of optical input and output ports in the format [input]x[output] (e.g., 1x2), but only if explicitly stated. Do not assume numbers that are not provided.
+  - Do not list specifications or descriptive modifiers as separate components. For example if a phase shifter or heater is integrated into a photonic modulator (MZI) only list the modulator.
+  - If multiple copies of the same component are described, list each one explicitly.
+  - If it is implied that a component is used more than once, list each instance separately.
+
+  circuit_instructions: Extract any instructions from the input text about how the components should be connected or used in the circuit. If none are provided, set this to an empty string.
+
+  brief_summary: Provide a summary of the input text in less than 150 words.
+
+  Example 1:
+  Input: "I need a high bandwidth Ge photodetector."
+  Output:
+  {
+    "design_type": "single_component",
+    "title": "High Bandwidth Ge Photodetector",
+    "components_list": ["high bandwidth Ge photodetector"],
+    "circuit_instructions": "",
+    "brief_summary": "Design of a single Germanium PD"
+  }
+
+  Example 2:
+  Input: "Connect a grating coupler to a waveguide crossing."
+  Output:
+  {
+    "design_type": "circuit_routing",
+    "title": "Grating Coupler to Crossing Link",
+    "components_list": ["grating coupler 1x1", "waveguide crossing 2x2"],
+    "circuit_instructions": "Connect grating coupler output to crossing input",
+    "brief_summary": "Simple link between GC and Crossing"
+  }

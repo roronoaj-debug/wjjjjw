@@ -72,7 +72,11 @@ def import_models(module_names):
         module = importlib.import_module(full_module_name)
         if hasattr(module, "get_model"):
             func = module.get_model
-            models_dict.update(func())
+            result = func()
+            # Handle both dict and function returns
+            if isinstance(result, dict):
+                models_dict.update(result)
+            # If it returns a function, skip it (not a valid model format)
     return models_dict
 
 

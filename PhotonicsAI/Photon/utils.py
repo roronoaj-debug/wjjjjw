@@ -15,7 +15,10 @@ import jax.numpy as jnp
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import pygraphviz as pgv
+try:
+    import pygraphviz as pgv
+except ImportError:
+    pgv = None  # pygraphviz is optional
 import yaml
 from sax.saxtypes import Float, Model
 

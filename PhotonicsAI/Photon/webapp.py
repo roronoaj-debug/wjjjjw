@@ -25,6 +25,10 @@ from datetime import datetime
 from pathlib import Path
 import os
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
 # Third-party imports
 import numpy as np
 import streamlit as st
@@ -44,8 +48,16 @@ from PhotonicsAI.Photon.drc.drc import run_drc
 
 # Available LLM models
 LLM_MODELS = {
+    "阿里云百炼": [
+        "glm-4.7",           # GLM-4.7 (推荐)
+        "qwen-plus",         # Qwen Plus
+        "qwen-turbo",        # Qwen Turbo (快速)
+        "qwen-max",          # Qwen Max (最强)
+        "qwen-long",         # Qwen Long (长上下文)
+    ],
     "智谱 AI 模型": [
         "glm-4",             # GLM-4 最新版
+        "glm-4-flash",       # GLM-4 Flash (免费)
         "chatglm_turbo",     # ChatGLM Turbo（更快）
         "chatglm_pro",       # ChatGLM Pro
         "chatglm_std",       # ChatGLM 标准版
@@ -81,14 +93,14 @@ def get_selected_model():
         selected = st.selectbox(
             "选择要使用的 AI 模型",
             all_models,
-            index=all_models.index("glm-4 (智谱)") if "glm-4 (智谱)" in all_models else 0,
+            index=all_models.index("glm-4.7 (阿里云)") if "glm-4.7 (阿里云)" in all_models else 0,
             help="选择用于所有步骤的 LLM 模型。不同模型可能需要不同的 API Key，请确保已在 .env 中配置。"
         )
         # 从选择中提取实际的模型名（去掉分类标识）
         return selected.split(" (")[0]
 
 # 所有步骤默认使用相同的模型
-selected_model = "glm-4"  # 默认值，会被 get_selected_model() 更新
+selected_model = "glm-4.7"  # 默认值，会被 get_selected_model() 更新
 entity_extraction_model = selected_model
 component_selection_model = selected_model
 component_specification_model = selected_model
@@ -1060,7 +1072,7 @@ session = st.session_state
 
 # 在session中存储并更新模型选择
 if 'selected_model' not in session:
-    session.selected_model = "glm-4"
+    session.selected_model = "glm-4.7"
 if 'model_initialized' not in session:
     session.model_initialized = False
 
@@ -1076,7 +1088,7 @@ if not session.model_initialized:
         selected = st.selectbox(
             "选择要使用的 AI 模型",
             all_models,
-            index=all_models.index("glm-4 (智谱)") if "glm-4 (智谱)" in all_models else 0,
+            index=all_models.index("glm-4.7 (阿里云)") if "glm-4.7 (阿里云)" in all_models else 0,
             help="选择用于所有步骤的 LLM 模型。不同模型可能需要不同的 API Key，请确保已在 .env 中配置。"
         )
         # 从选择中提取实际的模型名（去掉分类标识）
@@ -1154,7 +1166,7 @@ def check_input_change():
     This function monitors changes in the chat input and updates the session
     state to trigger appropriate workflow transitions.
     """
-    if session.chat_input != session.last_input:
+    if hasattr(session, 'chat_input') and hasattr(session, 'last_input') and session.chat_input != session.last_input:
         if session.chat_input.strip():  # Check if input is not just whitespace
             session.current_message = session.chat_input
             session.show_examples = False
@@ -1278,7 +1290,7 @@ custom_css = """
 
 # Example buttons in a container
 # Display example prompts when enabled to help users get started
-if session.show_examples:
+if hasattr(session, 'show_examples') and session.show_examples:
     # Add vertical space and center the container
     st.markdown(
         """
@@ -1412,6 +1424,10 @@ def display_templates_columns():
 
 
 def display_components_columns():
+    if not hasattr(session, 'p200_componenets_search_r') or not session.p200_componenets_search_r:
+        st.warning("No component search results available")
+        return
+    
     c_idx = []
     scores = []
     for c in session.p200_componenets_search_r:
@@ -1458,7 +1474,7 @@ def display_components_columns():
 
 
 # Step-by-Step Interface
-if session.step_by_step_mode:
+if hasattr(session, 'step_by_step_mode') and session.step_by_step_mode:
     # Ensure automatic workflow variables don't interfere with step-by-step workflow
     # Reset any automatic workflow state that might cause interference
     if hasattr(session, 'automatic_phase'):
@@ -2066,7 +2082,7 @@ edges:
                     st.error("Please provide circuit DSL YAML")
     
     # Results section
-    if session.step_results:
+    if hasattr(session, 'step_results') and session.step_results:
         st.markdown("---")
         st.markdown("### Step Results")
         
@@ -2119,11 +2135,11 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
     # Progress indicator
     phases = ["Entity Extraction", "Component Selection", "Schematic Generation", "Layout & Simulation"]
     current_phase_idx = 0
-    if session.entity_extraction_complete:
+    if hasattr(session, 'entity_extraction_complete') and session.entity_extraction_complete:
         current_phase_idx = 1
-    if session.component_search_complete:
+    if hasattr(session, 'component_search_complete') and session.component_search_complete:
         current_phase_idx = 2
-    if session.schematic_complete:
+    if hasattr(session, 'schematic_complete') and session.schematic_complete:
         current_phase_idx = 3
     
     st.markdown("### Automatic Workflow Progress")
@@ -2132,34 +2148,25 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f"**{phases[0]}** {'✅' if session.entity_extraction_complete else '⏳'}")
+        st.markdown(f"**{phases[0]}** {'✅' if hasattr(session, 'entity_extraction_complete') and session.entity_extraction_complete else '⏳'}")
     with col2:
-        st.markdown(f"**{phases[1]}** {'✅' if session.component_search_complete else '⏳'}")
+        st.markdown(f"**{phases[1]}** {'✅' if hasattr(session, 'component_search_complete') and session.component_search_complete else '⏳'}")
     with col3:
-        st.markdown(f"**{phases[2]}** {'✅' if session.schematic_complete else '⏳'}")
+        st.markdown(f"**{phases[2]}** {'✅' if hasattr(session, 'schematic_complete') and session.schematic_complete else '⏳'}")
     with col4:
-        st.markdown(f"**{phases[3]}** {'✅' if session.schematic_complete and 'p400' in session else '⏳'}")
+        st.markdown(f"**{phases[3]}** {'✅' if hasattr(session, 'schematic_complete') and session.schematic_complete and 'p400' in session else '⏳'}")
     
     st.markdown("---")
 
     # Display completed stage outputs
-    if session.entity_extraction_complete:
+    if hasattr(session, 'entity_extraction_complete') and session.entity_extraction_complete:
         st.markdown("### 📋 Stage 1: Entity Extraction Results")
-        with st.expander("Entity Extraction Output", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Extracted Entities:**")
-                st.write("```yaml\n" + yaml.dump(session.p200_pretemplate, width=55))
-            with col2:
-                try:
-                    st.markdown("**Initial Schematic:**")
-                    st.graphviz_chart(session.p200_preschematic)
-                except Exception as e:
-                    st.error(f"An error occurred: {e}")
-                    st.write("Failed to render:\n```dot\n" + session.p200_preschematic)
+        st.markdown("**Extracted Entities:**")
+        if hasattr(session, 'p200_pretemplate'):
+            st.write("```yaml\n" + yaml.dump(session.p200_pretemplate, width=55))
         st.markdown("---")
 
-    if session.component_search_complete:
+    if hasattr(session, 'component_search_complete') and session.component_search_complete:
         st.markdown("### 🔍 Stage 2: Component Selection Results")
         with st.expander("Component Search Results", expanded=True):
             if hasattr(session, 'p200_componenets_search_r') and session.p200_componenets_search_r:
@@ -2291,7 +2298,267 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 # Create a copy of the pretemplate for later use
                 session.p200_pretemplate_copy = copy.deepcopy(session.p200_pretemplate)
 
+            session.entity_extraction_complete = True
             st.success("✅ Entity extraction completed!")
+
+            # -------------------------------------------------------------
+            # 👑 Mode Detection: Single Component vs Circuit Routing
+            # -------------------------------------------------------------
+            # Use LLM-detected intent from prompt
+            design_type = session.p200_pretemplate.get_design_type() if hasattr(session.p200_pretemplate, 'get_design_type') else session.p200_pretemplate.get("design_type", "circuit_routing")
+            components = session.p200_pretemplate.get("components_list", [])
+            
+            is_routing = True
+            if design_type == "single_component":
+                is_routing = False
+            
+            # Set phase based on mode
+            if not is_routing:
+                # ------------------------------------------------------------------
+                # Strategy: Check Library (Component Selection) -> Found? -> Prompt
+                #                                               -> Not Found? -> Auto-PDK
+                # ------------------------------------------------------------------
+                
+                st.markdown("**🔍 Checking component library...**")
+                
+                # Setup search context
+                session.p100_llm_api_selection = component_selection_model
+                target_component = components[0] if components else "unknown"
+                st.write(f"Target component: `{target_component}`")
+                
+                # 先用关键词快速匹配
+                def quick_keyword_match(target, cnames):
+                    """快速关键词匹配，返回最接近的组件名"""
+                    target_lower = target.lower()
+                    # 关键词映射（按优先级）
+                    keyword_map = {
+                        "grating": ["_gc", "grating"],
+                        "mmi": ["mmi"],
+                        "ring": ["ring", "mrr"],
+                        "resonator": ["ring", "mrr", "resonator"],
+                        "coupler": ["coupler", "dc"],
+                        "mzi": ["mzi"],
+                        "crossing": ["crossing"],
+                        "splitter": ["mmi", "splitter"],
+                        "modulator": ["modulator", "mzm"],
+                        "heater": ["heater"],
+                        "phase": ["phase"],
+                    }
+                    
+                    for kw, aliases in keyword_map.items():
+                        if kw in target_lower:
+                            for alias in aliases:
+                                # 先找以别名开头的
+                                for cname in cnames:
+                                    cname_lower = cname.lower()
+                                    if cname_lower.startswith(alias) or cname_lower.startswith("_" + alias):
+                                        return cname
+                                # 再找包含别名的
+                                for cname in cnames:
+                                    if alias in cname.lower():
+                                        return cname
+                    return None
+                
+                quick_match = quick_keyword_match(target_component, session.p100_list_of_cnames)
+                
+                if quick_match:
+                    st.write(f"✅ Keyword match found: `{quick_match}`")
+                    session.automatic_phase = "pdk_optimization"
+                    session.pdk_candidate_name = quick_match
+                    lib_path = PATH.repo / "PhotonicsAI" / "KnowledgeBase" / "DesignLibrary" / f"{quick_match}.py"
+                    if lib_path.exists():
+                        session.generated_template_path = str(lib_path)
+                    st.rerun()
+                else:
+                    # 没有找到匹配，进入 PDK 生成阶段
+                    st.write("No keyword match, will generate new component...")
+                    session.pdk_target_component = target_component
+                    session.automatic_phase = "pdk_generation"
+                    st.rerun()
+                    
+                # 保留 LLM 搜索作为注释，以备将来使用
+                # found_match = False
+                # best_match_name = ""
+                # try:
+                #     with st.spinner("Searching component library..."):
+                #         search_r = llm_api.llm_search(target_component, session.p100_list_of_docs, model=selected_model)
+                #     if search_r.match_scores and search_r.match_scores[0] in ["exact", "partial"]:
+                #          idx = search_r.match_list[0]
+                #          best_match_name = session.p100_list_of_cnames[idx]
+                #          found_match = True
+                # except Exception as e:
+                #     st.warning(f"LLM search error: {e}")
+                
+                if found_match:
+                     session.automatic_phase = "pdk_optimization"
+                     session.pdk_candidate_name = best_match_name
+                     # 直接加载现有库组件
+                     lib_path = PATH.repo / "PhotonicsAI" / "KnowledgeBase" / "DesignLibrary" / f"{best_match_name}.py"
+                     if lib_path.exists():
+                         session.generated_template_path = str(lib_path)
+                     st.rerun()
+                else:
+                     # 保存目标组件名称，以防 rerun 后丢失
+                     session.pdk_target_component = target_component
+                     session.automatic_phase = "pdk_generation"
+                     st.rerun()
+            else:
+                session.automatic_phase = "component_selection" # Continue standard flow
+
+        # -------------------------------------------------------------
+        # Phase A.1: Single Component Discovery & Generation
+        # 流程: 爬虫搜索论文 -> LLM 聚合多篇论文参数 -> 生成 ONE 高质量模板
+        # -------------------------------------------------------------
+        if hasattr(session, 'automatic_phase') and session.automatic_phase == "pdk_generation":
+             # 调试信息
+             st.markdown("### 🔬 PDK Generation Phase")
+             st.write(f"**Debug Info:**")
+             st.write(f"- automatic_phase: {session.automatic_phase}")
+             st.write(f"- entity_extraction_complete: {session.entity_extraction_complete}")
+             st.write(f"- p200_pretemplate exists: {hasattr(session, 'p200_pretemplate')}")
+             st.write(f"- pdk_target_component: {getattr(session, 'pdk_target_component', 'Not set')}")
+             
+             # 修复: 确保能获取到 target_component
+             try:
+                if hasattr(session, 'p200_pretemplate') and session.p200_pretemplate:
+                    target_component = session.p200_pretemplate.get("components_list", ["unknown"])
+                    target_component = target_component[0] if target_component else "unknown"
+                elif hasattr(session, 'pdk_target_component') and session.pdk_target_component:
+                    target_component = session.pdk_target_component
+                else:
+                    target_component = "unknown"
+             except Exception as e:
+                st.warning(f"Component extraction fallback: {e}")
+                target_component = getattr(session, 'pdk_target_component', 'unknown')
+                
+             st.markdown(f"**🔬 Target Component:** `{target_component}`")
+                
+             with st.spinner(f"🔬 Searching literature & generating template for '{target_component}'..."):
+                 try:
+                     import sys
+                     repo_root = str(PATH.repo)
+                     if repo_root not in sys.path:
+                         sys.path.append(repo_root)
+                     try:
+                         import scripts.auto_pdk_generator as auto_pdk_generator
+                     except ImportError:
+                         scripts_path = str(PATH.repo / "scripts")
+                         if scripts_path not in sys.path:
+                             sys.path.append(scripts_path)
+                         import auto_pdk_generator  # type: ignore[import-not-found]
+                     
+                     discovery_result = auto_pdk_generator.discover_and_generate(
+                         component_name=target_component,
+                         max_papers=8
+                     )
+                     
+                     # 显示发现结果
+                     st.markdown("**📊 Discovery Results:**")
+                     st.write(f"- Papers found: {discovery_result.get('papers_found', 0)}")
+                     st.write(f"- Device type: {discovery_result.get('device_type', 'N/A')}")
+                     if discovery_result.get('params'):
+                         st.write(f"- Parameters: {discovery_result.get('params')}")
+                     
+                     if discovery_result.get("filepath"):
+                         session.generated_template_path = discovery_result["filepath"]
+                         session.discovery_result = discovery_result
+                         session.automatic_phase = "pdk_optimization"
+                         st.success(f"✅ Generated template: {discovery_result['filepath']}")
+                         st.rerun()
+                     else:
+                         error_msg = discovery_result.get("error", "Unknown error")
+                         st.error(f"❌ Failed to generate template: {error_msg}")
+                         st.info("Falling back to component selection...")
+                         session.automatic_phase = "component_selection"
+                         st.rerun()
+                         
+                 except Exception as e:
+                     import traceback
+                     st.error(f"❌ Discovery error: {e}")
+                     with st.expander("Error Details", expanded=False):
+                         st.code(traceback.format_exc())
+                     session.automatic_phase = "component_selection"
+                     st.rerun()
+                     
+        if hasattr(session, 'automatic_phase') and session.automatic_phase == "pdk_optimization":
+            st.markdown("### 🔧 Component Optimization & Simulation")
+            
+            col_opt1, col_opt2 = st.columns([3, 1])
+            with col_opt2:
+                 if st.button("New Design"):
+                    # Clear session keys related to workflow
+                    keys_to_clear = ['p200_pretemplate', 'generated_template_path', 'automatic_phase', 'current_message', 'input_submitted']
+                    for key in keys_to_clear:
+                        if key in session:
+                            del session[key]
+                    st.rerun()
+
+            if hasattr(session, 'generated_template_path') and session.generated_template_path:
+                if st.button("🚀 Run FDTD / Simulation", type="primary"):
+                    st.info("🔄 Running Tidy3D simulation...")
+                    
+                    try:
+                        from PhotonicsAI.Photon import tidy3d_runner
+                        import os
+                        
+                        # Enable actual cloud run
+                        os.environ["TIDY3D_RUN"] = "1"
+                        
+                        # Build session dict for tidy3d
+                        session_dict = {
+                            "p200_pretemplate": session.p200_pretemplate if hasattr(session, 'p200_pretemplate') else {},
+                            "p300_circuit_dsl": {
+                                "doc": {"title": session.p200_pretemplate.get("title", "Component") if hasattr(session, 'p200_pretemplate') else "Component"}
+                            }
+                        }
+                        
+                        # Run Tidy3D
+                        tidy3d_runner.try_log_tidy3d(session_dict)
+                        
+                        st.success("✅ Tidy3D simulation completed!")
+                        
+                        # Use unified component detector
+                        from component_detector import detect_component_type
+                        
+                        component_type = "unknown"
+                        comp_list = session_dict.get("p200_pretemplate", {}).get("components_list", [])
+                        if comp_list:
+                            component_type, confidence = detect_component_type(str(comp_list[0]))
+                        
+                        # Show generated images for this component type
+                        sim_pngs = [
+                            PATH.build / f"tidy3d_sim_z0_{component_type}.png",
+                            PATH.build / f"tidy3d_sim_x0_{component_type}.png", 
+                            PATH.build / f"tidy3d_sim_y0_{component_type}.png",
+                        ]
+                        # Fallback to default names if component-specific files don't exist
+                        default_pngs = [
+                            PATH.build / "tidy3d_sim_z0.png",
+                            PATH.build / "tidy3d_sim_x0.png", 
+                            PATH.build / "tidy3d_sim_y0.png",
+                        ]
+                        
+                        # Use component-specific files if they exist, otherwise use defaults
+                        for i, png_path in enumerate(sim_pngs):
+                            if png_path.exists():
+                                st.image(str(png_path), caption=png_path.name)
+                            elif default_pngs[i].exists():
+                                st.image(str(default_pngs[i]), caption=default_pngs[i].name)
+                        
+                        # Show log
+                        tlog = PATH.build / "tidy3d.log"
+                        if tlog.exists():
+                            with st.expander("📄 Simulation Log"):
+                                st.code(tlog.read_text(encoding="utf-8"), language="text")
+                                
+                    except Exception as sim_e:
+                        st.error(f"Simulation error: {sim_e}")
+            else:
+                st.error("Template file not found.")
+            
+            # Stop execution here for single component mode
+            st.stop()
+
 
             # Component and template search
             session.p100_llm_api_selection = component_selection_model
@@ -2321,7 +2588,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             st.rerun()
 
         # Phase 2: Component Selection (only show if entity extraction is complete)
-        elif session.entity_extraction_complete and not session.component_search_complete:
+        elif hasattr(session, 'entity_extraction_complete') and session.entity_extraction_complete and not (hasattr(session, 'component_search_complete') and session.component_search_complete):
             session.automatic_phase = "component_selection"
             st.markdown(
                 '<div style="text-align: right; font-size: 18px; font-family: monospace;">Component Selection</div>',
@@ -2339,10 +2606,11 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 )
                 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-                if session.p200_componenets_search_r:
+                if hasattr(session, 'p200_componenets_search_r') and session.p200_componenets_search_r:
                     for i, search_result in enumerate(session.p200_componenets_search_r):
                         with st.container(border=True):
-                            st.write(f"**{session.p200_pretemplate['components_list'][i]}**")
+                            comp_name = session.p200_pretemplate['components_list'][i] if hasattr(session, 'p200_pretemplate') else f"Component {i+1}"
+                            st.write(f"**{comp_name}**")
                             options = []
                             for k, j in enumerate(search_result.match_list):
                                 name = list_of_cnames[j]
@@ -2368,7 +2636,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
 
             # Display template search results (right)
             with col4:
-                if session.p200_retreived_templates:
+                if hasattr(session, 'p200_retreived_templates') and session.p200_retreived_templates:
                     st.markdown(
                         html_banner.format(content="🧩 use a template"),
                         unsafe_allow_html=True,
@@ -2396,7 +2664,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             with a1:
                 if st.button("Submit Component Selection", key="auto_submit_components"):
                     selected_components = []
-                    if session.p200_componenets_search_r:
+                    if hasattr(session, 'p200_componenets_search_r') and session.p200_componenets_search_r:
                         for i in range(len(session.p200_componenets_search_r)):
                             selected_key = f"auto_component_{i}"
                             # If user didn't touch the radio, try to pick the top option
@@ -2425,7 +2693,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             with a2:
                 if st.button("Auto-select Best Matches", key="auto_autoselect"):
                     selected_components = []
-                    if session.p200_componenets_search_r:
+                    if hasattr(session, 'p200_componenets_search_r') and session.p200_componenets_search_r:
                         for sr in session.p200_componenets_search_r:
                             # pick exact if exists else first
                             pick = 0
@@ -2455,7 +2723,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                     st.rerun()
 
         # Phase 3: Schematic Generation (only run if component selection is complete)
-        elif session.component_search_complete and "p300" not in session:
+        elif hasattr(session, 'component_search_complete') and session.component_search_complete and "p300" not in session:
             session.automatic_phase = "schematic"
             st.markdown(
                         '<div style="text-align: right; font-size: 18px; font-family: monospace;">300 schematic</div>',
@@ -2463,7 +2731,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             )
 
             # Create circuit DSL from selected components
-            if session.components_selected:
+            if hasattr(session, 'components_selected') and session.components_selected:
                 session.p200_pretemplate["components_list"] = session.p200_selected_components
                 map_pretemplate_to_template()
                 session["p300"] = True
@@ -2540,7 +2808,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                     st.rerun()
 
             # Template handling (if template was selected)
-            elif session.template_selected:
+            elif hasattr(session, 'template_selected') and session.template_selected:
                 template_id = session["p200_selected_template"]
                 with st.container(border=True):
                     st.markdown(f"Selection: *{template_id}*\n\n")
@@ -2699,7 +2967,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                             st.rerun()
 
         # Phase 4: Layout and Simulation (only run if schematic is complete)
-        elif session.schematic_complete and "p400" in session:
+        elif hasattr(session, 'schematic_complete') and session.schematic_complete and "p400" in session:
             session.automatic_phase = "layout"
             logger()
             st.markdown(
@@ -2903,11 +3171,11 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 print(f"===========================\n")
             
             # Display runtime in appropriate format
-            if session.p100_runtime >= 60:
+            if hasattr(session, 'p100_runtime') and session.p100_runtime >= 60:
                 minutes = int(session.p100_runtime // 60)
                 seconds = session.p100_runtime % 60
                 st.write(f"run time: {minutes}m {seconds:.1f}s")
-            else:
+            elif hasattr(session, 'p100_runtime'):
                 st.write(f"run time: {round(session.p100_runtime,2)} seconds")
             logger()
 
