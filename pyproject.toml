@@ -33,7 +33,7 @@ dependencies = [
     "pygraphviz",
     "tiktoken",
     "bayesian-optimization",
-    "protobuf==3.20.3",
+    "protobuf==7.34.1",
 ]
 description = "Design"
 keywords = ["python"]
