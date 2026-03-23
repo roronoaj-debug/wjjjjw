@@ -1146,11 +1146,6 @@ sax = [
     { name = "sax" },
     { name = "scikit-learn" },
 ]
-tidy3d = [
-    { name = "meshio" },
-    { name = "meshwell" },
-    { name = "tidy3d" },
-]
 
 [[package]]
 name = "graphviz"
@@ -3160,7 +3155,7 @@ dependencies = [
     { name = "fireworks-ai" },
     { name = "gdsfactory" },
     { name = "google-generativeai" },
-    { name = "gplugins", extra = ["sax", "tidy3d"] },
+    { name = "gplugins", extra = ["sax"] },
     { name = "groq" },
     { name = "haystack-ai" },
     { name = "ipykernel" },
@@ -3210,7 +3205,7 @@ requires-dist = [
     { name = "fireworks-ai" },
     { name = "gdsfactory", specifier = "~=8.18.1" },
     { name = "google-generativeai" },
-    { name = "gplugins", extras = ["sax", "tidy3d"], specifier = "~=1.1.2" },
+    { name = "gplugins", extras = ["sax"], specifier = "~=1.1.2" },
     { name = "groq" },
     { name = "haystack-ai" },
     { name = "ipykernel" },
@@ -4990,35 +4985,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bd/55/b5148dcbf72f5cde221f8bfe3b6a540da7aa1842f6b491ad979a6c8b84af/threadpoolctl-3.5.0.tar.gz", hash = "sha256:082433502dd922bf738de0d8bcc4fdcbf0979ff44c42bd40f5af8a282f6fa107", size = 41936 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/2c/ffbf7a134b9ab11a67b0cf0726453cedd9c5043a4fe7a35d1cefa9a1bcfb/threadpoolctl-3.5.0-py3-none-any.whl", hash = "sha256:56c1e26c150397e58c4926da8eeee87533b1e32bef131bd4bf6a2f45f3185467", size = 18414 },
-]
-
-[[package]]
-name = "tidy3d"
-version = "2.5.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "boto3" },
-    { name = "click" },
-    { name = "dask" },
-    { name = "h5netcdf" },
-    { name = "h5py" },
-    { name = "importlib-metadata" },
-    { name = "matplotlib" },
-    { name = "pydantic" },
-    { name = "pyjwt" },
-    { name = "pyroots" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "responses" },
-    { name = "rich" },
-    { name = "scipy" },
-    { name = "shapely" },
-    { name = "toml" },
-    { name = "xarray" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/50/cc/bf90af176dc12befbd9afd0a72c364d79056f5e21e3245fb830f08470a62/tidy3d-2.5.2.tar.gz", hash = "sha256:e6eb9df2b3960fcaac6736555506fdc2c582faccd39a9ffd085b6c6e8fc9b8b0", size = 562566 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/22/5a680a8e70a3ed783f4c46a0bb24b305f7d250d8e1f2633bd406ce5d2830/tidy3d-2.5.2-py3-none-any.whl", hash = "sha256:1e64bba2a55d08b36b6468cf135a9a08a488388003602b9c7dacd9bacb12708e", size = 640601 },
 ]
 
 [[package]]

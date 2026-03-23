@@ -92,25 +92,20 @@ diagram_code = """graph TD
     P4_AddPlace --> P4_FinalPorts[utils.add_final_ports<br/>添加最终端口]
     P4_FinalPorts --> P4_Complete[session.schematic_complete=True<br/>session.p300_circuit_dsl完整版]
     
-    %% Phase 5: 版图与仿真
-    P4_Complete --> P5_Start[Phase 5: 版图与仿真]
+    %% Phase 5: 版图与校验
+    P4_Complete --> P5_Start[Phase 5: 版图与校验]
     P5_Start --> P5_Convert[utils.dsl_to_gf<br/>Circuit DSL → GDSFactory Netlist<br/>参数过滤+lru_cache优化]
     P5_Convert --> P5_GDS[yaml_netlist_to_gds<br/>session.p400_gf_netlist]
     
     P5_GDS --> P5_Read[gf.read.from_yaml<br/>生成GDS Component c]
     P5_Read --> P5_Netlist[c.get_netlist recursive=True<br/>递归netlist]
-    P5_Netlist --> P5_SAX[sax.circuit<br/>构建仿真模型<br/>session.p400_sax_circuit]
-    P5_SAX --> P5_Plot[c.plot<br/>GDS可视化<br/>session.p400_gdsfig]
+    P5_Netlist --> P5_Plot[c.plot<br/>GDS可视化<br/>session.p400_gdsfig]
     
-    %% 三条并行路径
-    P5_Plot --> P5_Parallel{三条并行路径}
+    %% 两条并行路径
+    P5_Plot --> P5_Parallel{两条并行路径}
     
-    P5_Parallel --> P5_Sim[路径A: SAX仿真<br/>❌不需要GDS文件]
-    P5_Parallel --> P5_Display[路径B: GDS显示<br/>❌不需要GDS文件]
-    P5_Parallel --> P5_DRC[路径C: DRC检查<br/>✅需要GDS文件]
-    
-    P5_Sim --> P5_SimRun[wl扫描1.5-1.6μm<br/>session.p400_sax_circuit wl<br/>使用预计算FDTD模型]
-    P5_SimRun --> P5_SimPlot[utils.plot_dict_arrays<br/>绘制S参数<br/>build/plot_sax.png]
+    P5_Parallel --> P5_Display[路径A: GDS显示<br/>❌不需要额外文件]
+    P5_Parallel --> P5_DRC[路径B: DRC检查<br/>✅需要GDS文件]
     
     P5_Display --> P5_DisplayShow[st.pyplot session.p400_gdsfig<br/>Matplotlib显示]
     
@@ -124,7 +119,6 @@ diagram_code = """graph TD
     P5_DRCRun --> P5_KLayout[klayout -b -r drc_script.drc<br/>执行设计规则检查]
     P5_KLayout --> P5_Report[生成report.lydrb<br/>违规报告]
     
-    P5_SimPlot --> P5_Opt
     P5_DisplayShow --> P5_Opt
     P5_Report --> P5_Opt
     P5_Skip --> P5_Opt
@@ -141,7 +135,7 @@ diagram_code = """graph TD
     Step1 --> Step2[Step 2: Component Specification<br/>选择组件/模板]
     Step2 --> Step3[Step 3: Circuit DSL Creation<br/>手动编辑pretemplate]
     Step3 --> Step4[Step 4: Schematic Generation<br/>可选custom preschematic]
-    Step4 --> Step5[Step 5: Layout & Simulation<br/>手动提供Circuit DSL]
+    Step4 --> Step5[Step 5: Layout & Validation<br/>手动提供Circuit DSL]
     Step5 --> StepDone[各步独立执行<br/>结果保存在session.step_results]
     
     %% 关键数据流标注
@@ -151,7 +145,7 @@ diagram_code = """graph TD
     classDef pathClass fill:#ffe8f0,stroke:#cc0066,stroke-width:2px
     
     class P0_Intent,P1_Extract,P1_Pre,P2_Search,P3_Parse,P4_Apply,P4_EdgeComp,P4_EdgeTemp,P4_Fix llmClass
-    class P1_Result,P1_PreResult,P2_CompSearch,P2_TempSearch,P3_CompDSL,P3_TempDSL,P4_Complete,P5_SAX dataClass
+    class P1_Result,P1_PreResult,P2_CompSearch,P2_TempSearch,P3_CompDSL,P3_TempDSL,P4_Complete dataClass
     class P2_CompSelected,P2_TempSelected,P3_CompPath,P3_TempPath pathClass
     class P1_Start,P2_UI,P4_Start,P5_Start phaseClass"""
 
@@ -164,7 +158,7 @@ kroki_url = "https://kroki.io/mermaid/png"
 
 print("""
 ╔════════════════════════════════════════════════════════════════╗
-║         PhIDO 流程图导出方案                                   ║
+║         OptiAi 流程图导出方案                                  ║
 ╚════════════════════════════════════════════════════════════════╝
 
 ✅ 已生成文件：
@@ -193,7 +187,7 @@ print("""
   # Linux: apt-get install wkhtmltopdf
   
   # 然后运行:
-  wkhtmltoimage workflow_diagram.html PhIDO_Workflow_Diagram.png
+  wkhtmltoimage workflow_diagram.html OptiAi_Workflow_Diagram.png
 
 【方法4】Python脚本（需要playwright）
   pip install playwright
@@ -206,7 +200,7 @@ print("""
 💡 快速操作步骤：
   1. 用Chrome/Edge打开 workflow_diagram.html
   2. 右键点击 → 另存为... 或 打印为PDF
-  3. 保存为 PhIDO_Workflow_Diagram.png/pdf
+  3. 保存为 OptiAi_Workflow_Diagram.png/pdf
 
 🎨 颜色说明：
   🟨 黄色 - LLM调用函数
@@ -218,7 +212,7 @@ print("""
 # 生成快速URL文件
 url_file = Path(__file__).parent / "export_diagram.md"
 with open(url_file, 'w', encoding='utf-8') as f:
-    f.write(f"""# PhIDO 流程图导出
+    f.write(f"""# OptiAi 流程图导出
 
 ## 快速链接
 

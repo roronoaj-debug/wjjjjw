@@ -1,6 +1,6 @@
 """
 Component type detection module.
-Provides unified component type detection for Tidy3D simulations.
+Provides unified component type detection for simulation flows.
 """
 
 from typing import Tuple, Optional

@@ -32,7 +32,7 @@ Reference:
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
+import numpy as jnp
 
 # Paper-extracted parameters from IEEE Sensors Journal 2020
 PAPER_PARAMS = {

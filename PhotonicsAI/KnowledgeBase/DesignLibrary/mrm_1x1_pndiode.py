@@ -14,11 +14,12 @@ Args:
 """
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
 # from PhotonicsAI.Photon.utils import validate_cell_settings
 from PhotonicsAI.KnowledgeBase.DesignLibrary import _mmi1x2, bend_euler, straight
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import (
+    sax_models_removed,
+)
 
 # args = {
 #     'functional': {
@@ -45,25 +46,11 @@ def mrm_1x1_pndiode(gap: float = 0.3, radius: float = 5) -> gf.Component:
     return c
 
 def get_model(model="fdtd"):
-    """Get the model."""
-    if model == "ana":
-        return {"mrm_1x1_pndiode": get_model_ana}
-    if model == "fdtd":
-        return {"mrm_1x1_pndiode": get_model_fdtd}
-
-def get_model_fdtd(wl=1.5, length=10.0, neff=3.2) -> sax.SDict:
-    """Get FDTD model."""
-    return sax.reciprocal({("o1", "o2"): np.exp(2j * np.pi * neff * length / wl)})
+    """Return placeholder models after SAX support removal."""
+    return sax_models_removed("mrm_1x1_pndiode")
 
 if __name__ == "__main__":
     from pprint import pprint
-
-    import matplotlib
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import sax
-
-    matplotlib.use("macosx")
 
     # c = get_component({'delta_length':100, 'coupling1':0.1, 'coupling2':0.1})
     c = gf.Component()
@@ -72,20 +59,3 @@ if __name__ == "__main__":
     c.add_port("o2", port=ref.ports["o2"])
 
     pprint(c.get_netlist())
-    print()
-    # sys.exit()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    print(np.abs(_c(wl=1.35)["o1", "o2"]) ** 2)
-
-    c.plot()
-
-    plt.figure()
-    wl = np.linspace(1.5, 1.6, 500)
-    S21 = _c(wl=wl)["o1", "o2"]
-    plt.plot(wl, np.abs(S21) ** 2)
-    plt.show()

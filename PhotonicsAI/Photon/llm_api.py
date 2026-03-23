@@ -5,46 +5,101 @@ import os
 import re
 
 # Third-party imports
-import anthropic
-import backoff
-import google.generativeai as genai
+import requests
 import tiktoken
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel
-from deepseek_tokenizer import ds_token
-from zhipuai import ZhipuAI # 智谱AI SDK
-from openai import OpenAI
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 # Local imports
 from PhotonicsAI.config import CONF, PATH
 
-load_dotenv()
+if load_dotenv:
+    load_dotenv()
 
-# Session-specific token tracking for Google Gemini models
+prompts = {}
+try:
+    with open(PATH.prompts) as file:
+        prompts = yaml.safe_load(file) or {}
+except FileNotFoundError:
+    print(f"No {PATH.prompts} file found.")
+
+tokenizer = tiktoken.get_encoding("o200k_base")
+
+
+def get_runtime_llm_config():
+    """Read runtime LLM configuration from session state, config, and env vars."""
+    session_model = ""
+    session_api_key = ""
+    session_base_url = ""
+
+    try:
+        import streamlit as st
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        if get_script_run_ctx(suppress_warning=True) is not None:
+            session_model = str(st.session_state.get("selected_model", "") or "")
+            session_api_key = str(st.session_state.get("llm_api_key", "") or "")
+            session_base_url = str(st.session_state.get("llm_base_url", "") or "")
+    except Exception:
+        pass
+
+    model = (
+        session_model.strip()
+        or CONF.llm_model.strip()
+        or os.getenv("LLM_MODEL", "").strip()
+        or "glm-4-flash"
+    )
+    api_key = (
+        session_api_key.strip()
+        or CONF.llm_api_key.strip()
+        or os.getenv("LLM_API_KEY", "").strip()
+    )
+    base_url = (
+        session_base_url.strip()
+        or CONF.llm_base_url.strip()
+        or os.getenv("LLM_BASE_URL", "").strip()
+    )
+
+    return {
+        "model": model,
+        "api_key": api_key,
+        "base_url": base_url,
+    }
+
+
 def get_session_token_usage():
     """Get token usage from current session state."""
     import streamlit as st
-    if 'token_usage' not in st.session_state:
+
+    if "token_usage" not in st.session_state:
         st.session_state.token_usage = {
             "non_cached_input_tokens": 0,
             "cached_input_tokens": 0,
-            "output_tokens": 0
+            "output_tokens": 0,
         }
     return st.session_state.token_usage
+
 
 def reset_token_usage():
     """Reset token usage counters for current session."""
     import streamlit as st
+
     st.session_state.token_usage = {
         "non_cached_input_tokens": 0,
         "cached_input_tokens": 0,
-        "output_tokens": 0
+        "output_tokens": 0,
     }
+
 
 def get_token_usage():
     """Get current token usage for current session."""
     return get_session_token_usage().copy()
+
 
 def add_token_usage(input_tokens, output_tokens, is_cached=False):
     """Add token usage to the current session counter."""
@@ -55,1408 +110,244 @@ def add_token_usage(input_tokens, output_tokens, is_cached=False):
         token_usage["non_cached_input_tokens"] += input_tokens
     token_usage["output_tokens"] += output_tokens
 
+
 def debug_token_usage():
     """Debug function to print current session token usage."""
     import streamlit as st
+
     token_usage = get_token_usage()
     print(f"Current session token usage: {token_usage}")
-    if hasattr(st.session_state, '_session_id'):
+    if hasattr(st.session_state, "_session_id"):
         print(f"Session ID: {st.session_state._session_id}")
-
-def debug_anthropic_response(message):
-    """Debug function to inspect Anthropic response structure."""
-    print("=== Anthropic Response Debug ===")
-    print(f"Response type: {type(message)}")
-    print(f"Response attributes: {dir(message)}")
-    
-    # Check for usage information
-    if hasattr(message, 'usage'):
-        print(f"Usage object: {message.usage}")
-        print(f"Usage type: {type(message.usage)}")
-        if message.usage:
-            print(f"Usage attributes: {dir(message.usage)}")
-            if hasattr(message.usage, 'input_tokens'):
-                print(f"Input tokens: {message.usage.input_tokens}")
-            if hasattr(message.usage, 'output_tokens'):
-                print(f"Output tokens: {message.usage.output_tokens}")
-    else:
-        print("No usage object found in response")
-    
-    # Check for content blocks (thinking and text)
-    if hasattr(message, 'content'):
-        print(f"Content blocks: {len(message.content)}")
-        thinking_blocks = 0
-        text_blocks = 0
-        
-        for i, block in enumerate(message.content):
-            print(f"Block {i}: type={block.type}")
-            if block.type == "thinking":
-                thinking_blocks += 1
-                print(f"  Thinking summary: {block.thinking[:100]}...")
-            elif block.type == "text":
-                text_blocks += 1
-                print(f"  Text length: {len(block.text)} characters")
-        
-        print(f"Total thinking blocks: {thinking_blocks}")
-        print(f"Total text blocks: {text_blocks}")
-    
-    print("================================")
-
-try:
-    with open(PATH.prompts) as file:
-        prompts = yaml.safe_load(file)
-except FileNotFoundError:
-    print(f"No {PATH.prompts} file found.")
-    pass
-
-LOCATION='us-east5'
-
-def call_anthropic(prompt, sys_prompt, model='claude-3-7-sonnet-20250219'):
-
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    
-    message = client.messages.create(
-        model=model,
-        max_tokens=16000,
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 10000
-        },
-        # temperature=0.1,
-        system=sys_prompt,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        stream=True  # Enable streaming for long requests
-    )
-    
-    # Handle streaming response
-    full_content = ""
-    usage_info = None
-    
-    for chunk in message:
-        try:
-            if chunk.type == "content_block_delta":
-                # Handle thinking deltas (have 'thinking' attribute)
-                if hasattr(chunk.delta, 'thinking'):
-                    # Skip thinking content - we only want the final response
-                    pass
-                # Handle text deltas (have 'text' attribute)  
-                elif hasattr(chunk.delta, 'text'):
-                    full_content += chunk.delta.text
-            elif chunk.type == "message_delta":
-                # Capture usage information from message_delta
-                if hasattr(chunk, 'usage'):
-                    usage_info = chunk.usage
-            elif chunk.type == "message_stop":
-                # End of message
-                break
-            # Skip other chunk types (message_start, content_block_start, content_block_stop, etc.)
-        except Exception as e:
-            # Continue processing other chunks
-            continue
-    
-    # Create a mock message object with the collected content
-    class MockMessage:
-        def __init__(self, content, usage):
-            # Create content blocks that match Anthropic's structure
-            class ContentBlock:
-                def __init__(self, text):
-                    self.type = "text"
-                    self.text = text
-            
-            self.content = [ContentBlock(content)]
-            self.usage = usage
-    
-    message = MockMessage(full_content, usage_info)
-    
-    # Track token usage
-    try:
-        # Debug the response structure to understand what's available
-        debug_anthropic_response(message)
-        
-        # Check if the response has usage information (including thinking tokens)
-        if hasattr(message, 'usage') and message.usage:
-            # Use the usage information from the response if available
-            input_tokens = message.usage.input_tokens if hasattr(message.usage, 'input_tokens') else 0
-            output_tokens = message.usage.output_tokens if hasattr(message.usage, 'output_tokens') else 0
-            
-            # If thinking was enabled, the output_tokens should include thinking tokens
-            # according to Anthropic's API documentation
-            print(f"Anthropic response usage - Input: {input_tokens}, Output: {output_tokens}")
-            print("Note: If thinking was enabled, output_tokens includes thinking tokens")
-            
-        else:
-            # Fallback to manual token counting
-            # Count input tokens (system prompt + user prompt)
-            count_response = client.messages.count_tokens(
-                model=model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            input_tokens = count_response.input_tokens
-            
-            # Add system prompt tokens
-            if sys_prompt:
-                sys_count_response = client.messages.count_tokens(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": sys_prompt}
-                    ]
-                )
-                input_tokens += sys_count_response.input_tokens
-            
-            # For output tokens, count the response content
-            # Extract all text blocks from the response
-            response_text = ""
-            for block in message.content:
-                if block.type == "text":
-                    response_text += block.text
-            
-            output_tokens = client.messages.count_tokens(
-                model=model,
-                messages=[
-                    {"role": "assistant", "content": response_text}
-                ]
-            ).input_tokens
-            
-            # Note: This doesn't include thinking tokens since we can't access them
-            # when using manual counting. The thinking tokens are only available
-            # in the response.usage object when the API provides it.
-            print(f"Manual token counting - Input: {input_tokens}, Output: {output_tokens}")
-            print("Warning: Thinking tokens not included in manual counting")
-        
-        # Add to session token usage (assuming not cached for now)
-        add_token_usage(input_tokens, output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error in call_anthropic: {e}")
-        # Fallback to tiktoken estimation
-        try:
-            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-            
-            # Extract all text blocks from the response
-            response_text = ""
-            for block in message.content:
-                if block.type == "text":
-                    response_text += block.text
-            
-            output_tokens = len(tokenizer.encode(response_text))
-            add_token_usage(input_tokens, output_tokens, is_cached=False)
-            print(f"Fallback tiktoken counting - Input: {input_tokens}, Output: {output_tokens}")
-            print("Warning: Thinking tokens not included in fallback counting")
-        except Exception as e2:
-            print(f"Fallback token tracking also failed: {e2}")
-    
-    # Summary of token counting approach:
-    # 1. If response.usage is available: Uses Anthropic's official token counts (includes thinking tokens)
-    # 2. If not available: Manual counting of system+user prompts and response text (excludes thinking tokens)
-    # 3. Fallback: tiktoken estimation (excludes thinking tokens)
-    
-    # Extract all text blocks for the final response
-    response_text = ""
-    for block in message.content:
-        if block.type == "text":
-            response_text += block.text
-    
-    with open('anthropic_response.yml', 'w') as outfile:
-        yaml.dump(message.content, outfile)
-    return response_text
-
-def call_google(prompt, sys_prompt, model='gemini-2.5-pro'):
-    """Calling google API using GenerativeModel with enhanced thinking support.
-
-    Args:
-        prompt: The prompt to send to the model.
-        sys_prompt: The system prompt to send to the model.
-        model: The model to use for the completion.
-    """
-    try:
-        import google.generativeai as genai
-    except ImportError as e:
-        print(f"Google Generative AI library not available: {e}")
-        print("Falling back to a simple response indicating the issue.")
-        return "Error: Google Generative AI library not properly installed or configured."
-    
-    try:
-        # Configure the API key
-        genai.configure(api_key=os.getenv("GOOGLEGENAI_API_KEY"))
-    except Exception as e:
-        print(f"Failed to configure Google Generative AI: {e}")
-        return "Error: Failed to configure Google Generative AI API."
-    
-    prompt = truncate_prompt(prompt)
-    
-    # WORKAROUND 1: Convert system prompt to user message to avoid system instruction filtering
-    # Combine system prompt and user prompt into a single user message
-    combined_prompt = f"""
-System: {sys_prompt}
-
-User: {prompt}
-
-Assistant: I am ready to generate the DOT graph. Shall I continue?
-User: Yes please, generate the DOT graph for the photonic circuit.
-"""
-    
-    # Debug output removed for cleaner terminal
-    
-    try:
-        # Create model WITHOUT system instruction (workaround 1)
-        model_instance = genai.GenerativeModel(
-            model_name=model
-            # No system_instruction to avoid system prompt filtering
-        )
-    except Exception as e:
-        print(f"Failed to create Google Generative AI model: {e}")
-        return "Error: Failed to create Google Generative AI model."
-    
-    # Generate content with disabled safety filters
-    try:
-        # Try with explicit safety settings to disable all filters
-        safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT", 
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE"
-            }
-        ]
-        
-        # WORKAROUND 2: Use prefill with assistant saying it will begin
-        # WORKAROUND 3: Disable streaming by not using stream=True
-        response = model_instance.generate_content(
-            combined_prompt,
-            generation_config=genai.types.GenerationConfig(
-                candidate_count=1,
-                temperature=0.1
-            ),
-            safety_settings=safety_settings
-            # No stream=True to avoid streaming filter issues
-        )
-        # Using generation with explicit safety settings disabled
-    except Exception as e:
-        print(f"Explicit safety settings failed: {e}")
-        try:
-            # Try with safety settings completely disabled
-            response = model_instance.generate_content(
-                combined_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    candidate_count=1,
-                    temperature=0.1
-                ),
-                safety_settings=None  # Completely disable safety filters
-                # No stream=True to avoid streaming filter issues
-            )
-            # Using generation with safety filters completely disabled
-        except Exception as e2:
-            print(f"Safety settings disabled failed: {e2}")
-            try:
-                # Try with basic generation without safety settings
-                response = model_instance.generate_content(
-                    combined_prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        candidate_count=1,
-                        temperature=0.1
-                    )
-                    # No stream=True to avoid streaming filter issues
-                )
-                # Using basic generation without safety settings
-            except Exception as e3:
-                print(f"All approaches failed: {e3}")
-                return "Error: Failed to generate content with Google Generative AI."
-    
-    # Track token usage with detailed thinking token tracking
-    try:
-        # Get token counts from response metadata
-        input_tokens = 0
-        output_tokens = 0
-        thoughts_tokens = 0
-        
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            # Access token counts from usage metadata
-            usage_metadata = response.usage_metadata
-            
-            # Get input tokens (prompt tokens)
-            if hasattr(usage_metadata, 'prompt_token_count'):
-                input_tokens = usage_metadata.prompt_token_count
-            elif hasattr(usage_metadata, 'input_token_count'):
-                input_tokens = usage_metadata.input_token_count
-            
-            # Get output tokens (candidate tokens)
-            if hasattr(usage_metadata, 'candidates_token_count'):
-                output_tokens = usage_metadata.candidates_token_count
-            elif hasattr(usage_metadata, 'output_token_count'):
-                output_tokens = usage_metadata.output_token_count
-            
-            # Get thinking tokens if available
-            if hasattr(usage_metadata, 'thoughts_token_count'):
-                thoughts_tokens = usage_metadata.thoughts_token_count
-            elif hasattr(usage_metadata, 'thinking_token_count'):
-                thoughts_tokens = usage_metadata.thinking_token_count
-            
-            # Debug: print all available attributes in usage_metadata
-            print(f"Usage metadata attributes: {[x for x in dir(usage_metadata) if not x.startswith('_')]}")
-        
-        print(f"Google response usage - Input: {input_tokens}, Output: {output_tokens}, Thoughts: {thoughts_tokens}")
-        print(f"Total tokens (including thinking): {input_tokens + output_tokens + thoughts_tokens}")
-        
-        # Add thoughts tokens to output tokens for total tracking
-        total_output_tokens = output_tokens + thoughts_tokens
-        
-        # If we can't get token counts from response, estimate them
-        if input_tokens == 0:
-            # Estimate input tokens (prompt + system prompt)
-            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-        if total_output_tokens == 0:
-            # Estimate output tokens
-            total_output_tokens = len(tokenizer.encode(response.text))
-        
-        # Add to global token usage (assuming not cached for now)
-        add_token_usage(input_tokens, total_output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error: {e}")
-    
-    # Debug output removed for cleaner terminal
-    
-    # Check if response has valid content
-    if not response or not hasattr(response, 'text') or not response.text:
-        print("Warning: Google API returned empty or invalid response")
-        return "Error: No valid response from Google API. The request may have been blocked or filtered."
-    
-    # Check for finish reason indicating blocked content
-    if hasattr(response, 'candidates') and response.candidates:
-        for i, candidate in enumerate(response.candidates):
-            if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 1:
-                # finish_reason=1 means STOP (successful completion), not blocked!
-                # Continue with normal processing
-                pass
-    
-    with open('google_response.yml', 'w') as outfile:
-        yaml.dump(response.text.replace("```", "").replace("yaml", "").replace("dot\n", ""), outfile)
-    return response.text.replace("```", "").replace("yaml", "").replace("dot\n", "")
-
-tokenizer = tiktoken.get_encoding("o200k_base")
-
-def count_deepseek_tokens(text):
-    """Count tokens using the fast DeepSeek tokenizer."""
-    try:
-        return len(ds_token.encode(text))
-    except Exception as e:
-        print(f"DeepSeek tokenizer error: {e}")
-        return None
 
 
 def truncate_prompt(prompt, max_tokens=120000):
-    """Truncate the input prompt to the maximum allowed tokens.
-
-    Args:
-        prompt (str): The input prompt to truncate.
-        max_tokens (int): The maximum number of tokens allowed.
-    """
-    # Tokenize the input prompt
+    """Truncate the input prompt to the maximum allowed tokens."""
     tokens = tokenizer.encode(prompt)
-
-    # Check if the prompt exceeds the maximum allowed tokens
     if len(tokens) > max_tokens:
-        # Truncate the prompt by keeping only the last `max_tokens` tokens
         tokens = tokens[-max_tokens:]
-
-        # Decode tokens back to string
-        truncated_prompt = tokenizer.decode(tokens)
-        return truncated_prompt
+        return tokenizer.decode(tokens)
     return prompt
-
-
-def call_nvidia(prompt, sys_prompt="", model="nvidia/llama-3.1-nemotron-ultra-253b-v1", n_completion=1):
-    """Calling openai API.
-
-    Args:
-        prompt: The prompt to send to the model.
-        sys_prompt: The system prompt to send to the model.
-        model: The model to use for the completion.
-    """
-    prompt = truncate_prompt(prompt)
-
-    client = ZhipuAI(base_url='https://integrate.api.nvidia.com/v1', api_key=os.getenv("NVIDIA_API_KEY"))
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0.2,
-        top_p = 0.7,
-        n=n_completion,
-        stream = False,
-        messages=[
-            {"role": "system", "content": "detailed thinking off"},
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    
-    # Track token usage
-    try:
-        # Get token counts from response
-        input_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'prompt_tokens') else 0
-        output_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'completion_tokens') else 0
-        
-        # If we can't get token counts from response, estimate them
-        if input_tokens == 0:
-            # Estimate input tokens (prompt + system prompt)
-            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-        if output_tokens == 0:
-            # Estimate output tokens
-            if n_completion == 1:
-                output_tokens = len(tokenizer.encode(response.choices[0].message.content))
-            else:
-                # For multiple completions, sum all output tokens
-                output_tokens = sum(len(tokenizer.encode(choice.message.content)) for choice in response.choices)
-        
-        # Add to session token usage (assuming not cached for now)
-        add_token_usage(input_tokens, output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error in call_nvidia: {e}")
-
-    # function to remove COT outputs in Nemotron API calls
-    splice = lambda x : re.sub(r'<think>.*?</think>', '', x, flags=re.DOTALL)
-    
-    with open('nvidia_response.yml', 'w') as outfile:
-        yaml.dump(response.choices[0].message.content, outfile)
-
-    if n_completion == 1:
-        return splice(response.choices[0].message.content)
-    else:
-        return [splice(r.message.content) for r in response.choices]
-
-def call_zhipu(prompt, sys_prompt="", model="glm-4", n_completion=1):
-    """调用智谱AI（Zhipu）SDK，统一用新版 SDK 客户端调用方式。
-
-    Args:
-        prompt: 发送给模型的提示文本
-        sys_prompt: 系统提示文本
-        model: 使用的模型名称，默认 glm-4
-        n_completion: 生成结果的数量
-    """
-    prompt = truncate_prompt(prompt)
-
-    # 兼容多种来源：优先 pydantic 配置，其次 .env 环境变量
-    api_key = (
-        CONF.zhipu_api_key
-        or os.getenv("ZHIPU_API_KEY")
-        or os.getenv("ZHIPUAI_API_KEY")  # 兼容官方常见变量名
-    )
-    if not api_key:
-        raise Exception(
-            "未找到智谱 API Key。请在 .env 中设置 ZHIPU_API_KEY（或 ZHIPUAI_API_KEY），"
-            "或在 PhotonicsAI/config.py 的 zhipu_api_key 字段中配置。"
-        )
-
-    # 显式实例化客户端（新版 SDK 推荐方式）；顺带设置兼容环境变量
-    os.environ.setdefault("ZHIPUAI_API_KEY", api_key)
-    client = ZhipuAI(api_key=api_key)
-
-    # 构建消息列表
-    messages = []
-    if sys_prompt:
-        messages.append({"role": "system", "content": sys_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    # 调用 API（OpenAI 兼容接口）
-    try:
-        # zhipuai SDK 的 chat.completions.create 当前不支持 n 参数
-        # 如需多次补全，循环调用聚合结果
-        if n_completion == 1:
-            response = client.chat.completions.create(
-                model=model,
-                temperature=0.1,
-                top_p=0.7,
-                messages=messages,
-                stream=False,
-            )
-        else:
-            responses = []
-            for _ in range(n_completion):
-                r = client.chat.completions.create(
-                    model=model,
-                    temperature=0.1,
-                    top_p=0.7,
-                    messages=messages,
-                    stream=False,
-                )
-                responses.append(r)
-            # 构造一个兼容下游处理的聚合对象（仅用到 .choices/.usage）
-            class _Agg:
-                def __init__(self, rs):
-                    self.choices = []
-                    self.usage = None
-                    for rr in rs:
-                        self.choices.extend(rr.choices)
-                    # 取第一条的 usage 以供统计；统计不精确时会走兜底
-                    if rs and hasattr(rs[0], 'usage'):
-                        self.usage = rs[0].usage
-            response = _Agg(responses)
-
-        # 处理 Token 统计
-        try:
-            input_tokens = (
-                response.usage.prompt_tokens
-                if hasattr(response, "usage") and hasattr(response.usage, "prompt_tokens")
-                else 0
-            )
-            output_tokens = (
-                response.usage.completion_tokens
-                if hasattr(response, "usage") and hasattr(response.usage, "completion_tokens")
-                else 0
-            )
-            if input_tokens == 0 or output_tokens == 0:
-                # 兜底估算
-                input_tokens = input_tokens or len(tokenizer.encode(prompt + sys_prompt))
-                if n_completion == 1:
-                    output_tokens = output_tokens or len(tokenizer.encode(response.choices[0].message.content))
-                else:
-                    output_tokens = output_tokens or sum(
-                        len(tokenizer.encode(choice.message.content)) for choice in response.choices
-                    )
-            add_token_usage(input_tokens, output_tokens, is_cached=False)
-        except Exception as e:
-            print(f"Token tracking error in call_zhipu: {e}")
-
-        # 返回结果
-        if n_completion == 1:
-            return response.choices[0].message.content
-        else:
-            return [choice.message.content for choice in response.choices]
-
-    except Exception as e:
-        raise Exception(f"智谱AI API error: {str(e)}")
-
-
-def call_aliyun(prompt, sys_prompt="", model="glm-5", n_completion=1):
-    """调用阿里云百炼 API（DashScope），支持 GLM-5 等模型。
-
-    Args:
-        prompt: 发送给模型的提示文本
-        sys_prompt: 系统提示文本
-        model: 使用的模型名称，默认 glm-5
-        n_completion: 生成结果的数量
-    """
-    try:
-        import dashscope
-        from dashscope import Generation
-    except ImportError:
-        raise Exception("请安装 dashscope: pip install dashscope")
-
-    prompt = truncate_prompt(prompt)
-
-    # 获取 API Key
-    api_key = os.getenv("ALIYUN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
-        raise Exception(
-            "未找到阿里云 API Key。请在 .env 中设置 ALIYUN_API_KEY 或 DASHSCOPE_API_KEY"
-        )
-
-    dashscope.api_key = api_key
-
-    # 构建消息列表
-    messages = []
-    if sys_prompt:
-        messages.append({"role": "system", "content": sys_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    # 模型名称映射（阿里云百炼支持的模型名）
-    model_map = {
-        "glm-5": "glm-5-plus",  # 阿里云百炼上的 GLM 模型
-        "glm-4": "glm-4-plus",
-        "qwen-turbo": "qwen-turbo",
-        "qwen-plus": "qwen-plus",
-        "qwen-max": "qwen-max",
-    }
-    
-    actual_model = model_map.get(model, model)
-
-    try:
-        responses = []
-        for _ in range(n_completion):
-            response = Generation.call(
-                model=actual_model,
-                messages=messages,
-                result_format='message',
-                temperature=0.1,
-                top_p=0.7,
-            )
-            
-            # 检查响应状态
-            if response.status_code != 200:
-                raise Exception(f"API 错误: {response.code} - {response.message}")
-            
-            if response.output is None:
-                raise Exception(f"API 返回空响应: {response}")
-            
-            responses.append(response)
-
-        # 处理 Token 统计
-        try:
-            usage = responses[0].usage if hasattr(responses[0], 'usage') else {}
-            input_tokens = usage.get('input_tokens', 0) if isinstance(usage, dict) else getattr(usage, 'input_tokens', 0)
-            output_tokens = usage.get('output_tokens', 0) if isinstance(usage, dict) else getattr(usage, 'output_tokens', 0)
-            
-            if input_tokens == 0:
-                input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-            if output_tokens == 0:
-                output_tokens = len(tokenizer.encode(responses[0].output.choices[0].message.content))
-            
-            add_token_usage(input_tokens, output_tokens, is_cached=False)
-        except Exception as e:
-            print(f"Token tracking error in call_aliyun: {e}")
-
-        # 返回结果
-        if n_completion == 1:
-            return responses[0].output.choices[0].message.content
-        else:
-            return [r.output.choices[0].message.content for r in responses]
-
-    except Exception as e:
-        raise Exception(f"阿里云百炼 API error: {str(e)}")
-
-    # Track token usage
-    try:
-        # Get token counts from response
-        input_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'prompt_tokens') else 0
-        output_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'completion_tokens') else 0
-        
-        # If we can't get token counts from response, estimate them
-        if input_tokens == 0:
-            # Estimate input tokens (prompt + system prompt)
-            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-        if output_tokens == 0:
-            # Estimate output tokens
-            if n_completion == 1:
-                output_tokens = len(tokenizer.encode(response.choices[0].message.content))
-            else:
-                # For multiple completions, sum all output tokens
-                output_tokens = sum(len(tokenizer.encode(choice.message.content)) for choice in response.choices)
-        
-        # Add to session token usage (assuming not cached for now)
-        add_token_usage(input_tokens, output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error in call_openai: {e}")
-
-    if n_completion == 1:
-        return response.choices[0].message.content
-    else:
-        return [r.message.content for r in response.choices]
-
-
-def call_openai_reasoning(prompt, model="o1-preview"):
-    """Calling openai o1 model.
-
-    Args:
-        prompt: The prompt to send to the model.
-        model: The model to use for the completion.
-    """
-    # prompt = truncate_prompt(prompt)
-    api_key = (CONF.openai_api_key or os.getenv("OPENAI_API_KEY"))
-    if not api_key:
-        raise Exception("未找到 OpenAI API Key。请在 .env 中设置 OPENAI_API_KEY，或在 PhotonicsAI/config.py 的 openai_api_key 配置。")
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-    )
-    
-    # Track token usage
-    try:
-        # Get token counts from response
-        input_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'prompt_tokens') else 0
-        output_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'completion_tokens') else 0
-        
-        # If we can't get token counts from response, estimate them
-        if input_tokens == 0:
-            # Estimate input tokens
-            input_tokens = len(tokenizer.encode(prompt))
-        if output_tokens == 0:
-            # Estimate output tokens
-            output_tokens = len(tokenizer.encode(response.choices[0].message.content))
-        
-        # Add to session token usage (assuming not cached for now)
-        add_token_usage(input_tokens, output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error in call_openai_reasoning: {e}")
-
-    return response.choices[0].message.content
-
-
-def _call_openai_compatible_pydantic(prompt, sys_prompt, pydantic_model, api_key, base_url, model):
-    """使用 OpenAI 兼容格式调用 API（阿里云百炼等）。
-    
-    Args:
-        prompt: 用户提示
-        sys_prompt: 系统提示
-        pydantic_model: Pydantic 模型
-        api_key: API Key
-        base_url: API Base URL
-        model: 模型名称
-    """
-    from openai import OpenAI
-    
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    
-    # 构建 JSON schema 提示
-    schema = {}
-    try:
-        schema = pydantic_model.model_json_schema()
-    except Exception:
-        pass
-    props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-    required = schema.get("required", []) if isinstance(schema, dict) else []
-    fields_desc = ", ".join([
-        f"{name}:{(props.get(name,{}).get('type','string'))}{' (required)' if name in required else ''}"
-        for name in props.keys()
-    ]) or "遵循模型字段定义"
-
-    enhanced_sys = (
-        f"{sys_prompt}\n\n"
-        f"请严格按照 JSON 输出，不要添加任何额外解释或代码块标记。\n"
-        f"字段与类型：{fields_desc}.\n"
-        f"确保输出能被 json.loads 直接解析。"
-    )
-    
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": enhanced_sys},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    
-    txt = response.choices[0].message.content
-    # 提取 JSON
-    raw = txt.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if m:
-        raw = m.group(0)
-    raw = raw.replace("\n", " ").replace("\r", " ")
-    raw = re.sub(r"\s+", " ", raw)
-    
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        raw = re.sub(r',\s*}', '}', raw)
-        raw = re.sub(r',\s*]', ']', raw)
-        data = json.loads(raw)
-    
-    _normalize_components_list(data)
-    return pydantic_model(**data)
-
-
-def _call_aliyun_pydantic(prompt, sys_prompt, pydantic_model, api_key, model="glm-4.7"):
-    """使用阿里云百炼 API 调用模型（OpenAI 兼容格式）。
-    
-    Args:
-        prompt: 用户提示
-        sys_prompt: 系统提示
-        pydantic_model: Pydantic 模型
-        api_key: 阿里云 API Key
-        model: 模型名称 (glm-4.7, qwen-plus, qwen-turbo 等)
-    """
-    from openai import OpenAI
-    
-    # 使用阿里云百炼的 Base URL
-    base_url = os.getenv("ALIYUN_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://coding.dashscope.aliyuncs.com/v1"
-    
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url
-    )
-    
-    # 构建 JSON schema 提示
-    schema = {}
-    try:
-        schema = pydantic_model.model_json_schema()
-    except Exception:
-        pass
-    props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-    required = schema.get("required", []) if isinstance(schema, dict) else []
-    fields_desc = ", ".join([
-        f"{name}:{(props.get(name,{}).get('type','string'))}{' (required)' if name in required else ''}"
-        for name in props.keys()
-    ]) or "遵循模型字段定义"
-
-    enhanced_sys = (
-        f"{sys_prompt}\n\n"
-        f"请严格按照 JSON 输出，不要添加任何额外解释或代码块标记。\n"
-        f"字段与类型：{fields_desc}.\n"
-        f"确保输出能被 json.loads 直接解析。"
-    )
-    
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": enhanced_sys},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    
-    txt = response.choices[0].message.content
-    # 提取 JSON - 更鲁棒的处理
-    raw = txt.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if m:
-        raw = m.group(0)
-    raw = raw.replace("\n", " ").replace("\r", " ")
-    raw = re.sub(r"\s+", " ", raw)
-    
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        raw = re.sub(r',\s*}', '}', raw)
-        raw = re.sub(r',\s*]', ']', raw)
-        data = json.loads(raw)
-    
-    # Normalize fields
-    _normalize_components_list(data)
-    
-    return pydantic_model(**data)
 
 
 def _normalize_components_list(data):
     """规范化 components_list 字段。"""
     try:
         if isinstance(data, dict) and isinstance(data.get("components_list"), list):
-            def _dict_to_component_string(d: dict) -> str:
-                name = d.get("name") or d.get("component") or d.get("type") or "component"
-                ports = d.get("ports") or d.get("port") or d.get("io")
+            def _dict_to_component_string(item):
+                name = item.get("name") or item.get("component") or item.get("type") or "component"
+                ports = item.get("ports") or item.get("port") or item.get("io")
                 specs_pairs = [
-                    f"{k}: {v}"
-                    for k, v in d.items()
-                    if k not in {"name", "component", "type", "ports", "port", "io"}
+                    f"{key}: {value}"
+                    for key, value in item.items()
+                    if key not in {"name", "component", "type", "ports", "port", "io"}
                 ]
                 specs_str = ", ".join(specs_pairs)
                 if specs_str and ports:
                     return f"{name}, specifications: {{{specs_str}}}, ports: {ports}"
-                elif specs_str:
+                if specs_str:
                     return f"{name}, specifications: {{{specs_str}}}"
-                elif ports:
+                if ports:
                     return f"{name}, ports: {ports}"
-                else:
-                    return str(name)
+                return str(name)
 
-            if any(isinstance(it, dict) for it in data["components_list"]):
+            if any(isinstance(item, dict) for item in data["components_list"]):
                 data["components_list"] = [
-                    _dict_to_component_string(it) if isinstance(it, dict) else str(it)
-                    for it in data["components_list"]
+                    _dict_to_component_string(item) if isinstance(item, dict) else str(item)
+                    for item in data["components_list"]
                 ]
     except Exception:
         pass
 
 
-def _call_model_with_pydantic(prompt, sys_prompt, pydantic_model, model):
-    """根据模型名称选择对应的 API 进行调用。
-    
-    Args:
-        prompt: 用户提示
-        sys_prompt: 系统提示  
-        pydantic_model: Pydantic 模型
-        model: 模型名称
-    """
-    from openai import OpenAI
-    
-    # glm-4.7 或 glm 系列 -> 阿里云百炼 (OpenAI 兼容格式)
-    if model.startswith("glm-") or model.startswith("chatglm"):
-        api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("ALIYUN_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://coding.dashscope.aliyuncs.com/v1"
-        if api_key:
-            return _call_openai_compatible_pydantic(prompt, sys_prompt, pydantic_model, api_key, base_url, model)
-        else:
-            raise Exception("未配置 API Key")
-    
-    # Qwen 系列 -> 阿里云百炼
-    elif model.startswith("qwen-"):
-        api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY")
-        base_url = os.getenv("ALIYUN_BASE_URL") or "https://coding.dashscope.aliyuncs.com/v1"
-        if api_key:
-            return _call_openai_compatible_pydantic(prompt, sys_prompt, pydantic_model, api_key, base_url, model)
-        else:
-            raise Exception("未配置阿里云 API Key (DASHSCOPE_API_KEY 或 ALIYUN_API_KEY)")
-    
-    # GPT 系列 -> OpenAI
-    elif model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3"):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key:
-            client = OpenAI(api_key=api_key)
-            completion = client.beta.chat.completions.parse(
-                model=model,
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format=pydantic_model,
-            )
-            message = completion.choices[0].message
-            if message.parsed:
-                return message.parsed
-            else:
-                raise Exception(f"OpenAI 拒绝请求: {message.refusal}")
-        else:
-            raise Exception("未配置 OpenAI API Key")
-    
+def _extract_json_dict(text):
+    """Extract a JSON object from model output and parse it."""
+    raw = text.strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if match:
+        raw = match.group(0)
+    raw = raw.replace("\n", " ").replace("\r", " ")
+    raw = re.sub(r"\s+", " ", raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raw = re.sub(r",\s*}", "}", raw)
+        raw = re.sub(r",\s*]", "]", raw)
+        data = json.loads(raw)
+    _normalize_components_list(data)
+    return data
+
+
+def call_openai_compatible(prompt, sys_prompt="", model="", n_completion=1, api_key="", base_url=""):
+    """Call an OpenAI-compatible chat completions API."""
+    prompt = truncate_prompt(prompt)
+    if not api_key:
+        raise Exception("未找到可用的 API Key。")
+    if not base_url:
+        raise Exception("未配置 API Base URL。")
+    if not model:
+        raise Exception("模型名不能为空。")
+
+    endpoint = base_url.rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+
+    messages = []
+    if sys_prompt:
+        messages.append({"role": "system", "content": sys_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.1,
+        "top_p": 0.7,
+        "stream": False,
+        "n": n_completion,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    verify_ssl_env = os.getenv("LLM_VERIFY_SSL", "1").strip().lower()
+    verify_ssl = verify_ssl_env not in {"0", "false", "no", "off"}
+
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=120, verify=verify_ssl)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        details = response.text.strip()
+        raise Exception(f"LLM API HTTP error: {error}. Response: {details}") from error
+
+    data = response.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise Exception(f"LLM API 返回中没有 choices: {data}")
+
+    usage = data.get("usage", {}) or {}
+    input_tokens = usage.get("prompt_tokens", 0) or len(tokenizer.encode(prompt + sys_prompt))
+    if n_completion == 1:
+        output_tokens = usage.get("completion_tokens", 0) or len(
+            tokenizer.encode(choices[0].get("message", {}).get("content", ""))
+        )
     else:
-        raise Exception(f"不支持的模型: {model}")
+        output_tokens = usage.get("completion_tokens", 0) or sum(
+            len(tokenizer.encode(choice.get("message", {}).get("content", ""))) for choice in choices
+        )
+    add_token_usage(input_tokens, output_tokens, is_cached=False)
+
+    if n_completion == 1:
+        return choices[0].get("message", {}).get("content", "")
+    return [choice.get("message", {}).get("content", "") for choice in choices]
+
+
+def call_model_api(prompt, sys_prompt="", model="", n_completion=1, api_key=None, base_url=None):
+    """Call the configured LLM provider using generic runtime settings."""
+    runtime = get_runtime_llm_config()
+    model = (model or runtime["model"] or "").strip()
+    api_key = (api_key or runtime["api_key"] or "").strip()
+    base_url = (base_url or runtime["base_url"] or "").strip()
+
+    if not api_key:
+        raise Exception("未找到可用的 API Key。请在程序开头填写 API Key。")
+    if not model:
+        raise Exception("模型名不能为空。请在程序开头填写模型名。")
+    if not base_url:
+        raise Exception("未配置 API Base URL。请在程序开头填写 API Base URL。")
+
+    return call_openai_compatible(
+        prompt,
+        sys_prompt=sys_prompt,
+        model=model,
+        n_completion=n_completion,
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+
+def _call_model_with_pydantic(prompt, sys_prompt, pydantic_model, model):
+    """Use the configured model for all structured-output calls."""
+    model = (model or "").strip()
+    if not model:
+        raise Exception("模型名不能为空。")
+
+    schema = {}
+    try:
+        schema = pydantic_model.model_json_schema()
+    except Exception:
+        pass
+
+    props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    required = schema.get("required", []) if isinstance(schema, dict) else []
+    fields_desc = ", ".join(
+        [
+            f"{name}:{(props.get(name, {}).get('type', 'string'))}{' (required)' if name in required else ''}"
+            for name in props.keys()
+        ]
+    ) or "遵循模型字段定义"
+
+    enhanced_sys = (
+        f"{sys_prompt}\n\n"
+        f"请严格按照 JSON 输出，不要添加任何额外解释或代码块标记。\n"
+        f"字段与类型：{fields_desc}.\n"
+        f"确保输出能被 json.loads 直接解析。"
+    )
+    return pydantic_model(**_extract_json_dict(call_model_api(prompt, enhanced_sys, model=model, n_completion=1)))
 
 
 def callgpt_pydantic(prompt, sys_prompt, pydantic_model, model=None):
-    """Calling openai with pydantic model.
+    """Structured output helper backed by the configured model."""
+    chosen_model = (model or "").strip() or get_runtime_llm_config().get("model", "")
+    return _call_model_with_pydantic(prompt, sys_prompt, pydantic_model, chosen_model)
 
-    Args:
-        prompt: The prompt to send to the model.
-        sys_prompt: The system prompt to send to the model.
-        pydantic_model: The pydantic model to use for the completion.
-        model: Optional model name to use (e.g., "glm-4.7", "qwen-plus")
-    """
-    # 如果指定了模型，使用对应的 API
-    if model:
-        return _call_model_with_pydantic(prompt, sys_prompt, pydantic_model, model)
-    
-    # 优先使用阿里云百炼 (glm-4.7)
-    aliyun_api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if aliyun_api_key:
-        try:
-            return _call_aliyun_pydantic(prompt, sys_prompt, pydantic_model, aliyun_api_key, "glm-4.7")
-        except Exception as e:
-            print(f"阿里云百炼调用失败: {e}，尝试下一个 API...")
-    
-    # 其次使用智谱 AI（GLM-4-flash 免费/低成本）
-    zhipu_api_key = os.getenv("ZHIPUAI_API_KEY") or os.getenv("ZHIPU_API_KEY")
-    if zhipu_api_key:
-        try:
-            from zhipuai import ZhipuAI
-            client = ZhipuAI(api_key=zhipu_api_key)
-            
-            # 构建 JSON schema 提示
-            schema = {}
-            try:
-                schema = pydantic_model.model_json_schema()
-            except Exception:
-                pass
-            props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-            required = schema.get("required", []) if isinstance(schema, dict) else []
-            fields_desc = ", ".join([
-                f"{name}:{(props.get(name,{}).get('type','string'))}{' (required)' if name in required else ''}"
-                for name in props.keys()
-            ]) or "遵循模型字段定义"
-
-            enhanced_sys = (
-                f"{sys_prompt}\n\n"
-                f"请严格按照 JSON 输出，不要添加任何额外解释或代码块标记。\n"
-                f"字段与类型：{fields_desc}.\n"
-                f"确保输出能被 json.loads 直接解析。"
-            )
-            
-            response = client.chat.completions.create(
-                model="glm-4-flash",  # 使用免费的 flash 模型
-                messages=[
-                    {"role": "system", "content": enhanced_sys},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            
-            txt = response.choices[0].message.content
-            # 提取 JSON - 更鲁棒的处理
-            # 1. 尝试直接解析
-            raw = txt.strip()
-            # 2. 移除可能的 markdown 代码块标记
-            if raw.startswith("```"):
-                lines = raw.split("\n")
-                raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
-            # 3. 提取 JSON 对象
-            m = re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                raw = m.group(0)
-            # 4. 清理常见的无效字符
-            raw = raw.replace("\n", " ").replace("\r", " ")
-            raw = re.sub(r"\s+", " ", raw)
-            # 5. 尝试解析
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                # 尝试修复常见问题
-                raw = re.sub(r',\s*}', '}', raw)  # 移除尾部逗号
-                raw = re.sub(r',\s*]', ']', raw)
-                data = json.loads(raw)
-            
-            # Normalize fields for robustness
-            try:
-                if isinstance(data, dict) and isinstance(data.get("components_list"), list):
-                    def _dict_to_component_string(d: dict) -> str:
-                        name = d.get("name") or d.get("component") or d.get("type") or "component"
-                        ports = d.get("ports") or d.get("port") or d.get("io")
-                        specs_pairs = [
-                            f"{k}: {v}"
-                            for k, v in d.items()
-                            if k not in {"name", "component", "type", "ports", "port", "io"}
-                        ]
-                        specs_str = ", ".join(specs_pairs)
-                        if specs_str and ports:
-                            return f"{name}, specifications: {{{specs_str}}}, ports: {ports}"
-                        elif specs_str:
-                            return f"{name}, specifications: {{{specs_str}}}"
-                        elif ports:
-                            return f"{name}, ports: {ports}"
-                        else:
-                            return str(name)
-
-                    if any(isinstance(it, dict) for it in data["components_list"]):
-                        data["components_list"] = [
-                            _dict_to_component_string(it) if isinstance(it, dict) else str(it)
-                            for it in data["components_list"]
-                        ]
-            except Exception:
-                pass
-            return pydantic_model(**data)
-        except Exception as e:
-            raise Exception(f"智谱 API 调用失败: {e}")
-    
-    # 使用 OpenAI 的结构化解析
-    api_key = (CONF.openai_api_key or os.getenv("OPENAI_API_KEY"))
-    if api_key:
-        client = OpenAI(api_key=api_key)
-        completion = client.beta.chat.completions.parse(
-            model="gpt-4o-2024-08-06",
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            response_format=pydantic_model,
-        )
-        message = completion.choices[0].message
-        if message.parsed:
-            return message.parsed
-        else:
-            print(message.refusal)
-            return message.refusal
-    
-    # 最后回退到智谱 AI
-    try:
-        schema = {}
-        try:
-            schema = pydantic_model.model_json_schema()
-        except Exception:
-            pass
-        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        required = schema.get("required", []) if isinstance(schema, dict) else []
-        fields_desc = ", ".join([
-            f"{name}:{(props.get(name,{}).get('type','string'))}{' (required)' if name in required else ''}"
-            for name in props.keys()
-        ]) or "遵循模型字段定义"
-
-        fallback_sys = (
-            f"{sys_prompt}\n\n"
-            f"请严格按照 JSON 输出，不要添加任何额外解释或代码块标记。\n"
-            f"字段与类型：{fields_desc}.\n"
-            f"确保输出能被 json.loads 直接解析。"
-        )
-        txt = call_zhipu(prompt, fallback_sys, model="glm-4", n_completion=1)
-        m = re.search(r"\{[\s\S]*\}", txt)
-        raw = m.group(0) if m else txt
-        data = json.loads(raw)
-        # Normalize fields for robustness: convert components_list items from dict->string if needed
-        try:
-            if isinstance(data, dict) and isinstance(data.get("components_list"), list):
-                def _dict_to_component_string(d: dict) -> str:
-                    name = d.get("name") or d.get("component") or d.get("type") or "component"
-                    # ports value may appear in various spellings
-                    ports = d.get("ports") or d.get("port") or d.get("io")
-                    specs_pairs = [
-                        f"{k}: {v}"
-                        for k, v in d.items()
-                        if k not in {"name", "component", "type", "ports", "port", "io"}
-                    ]
-                    specs_str = ", ".join(specs_pairs)
-                    if specs_str and ports:
-                        return f"{name}, specifications: {{{specs_str}}}, ports: {ports}"
-                    elif specs_str:
-                        return f"{name}, specifications: {{{specs_str}}}"
-                    elif ports:
-                        return f"{name}, ports: {ports}"
-                    else:
-                        return str(name)
-
-                if any(isinstance(it, dict) for it in data["components_list"]):
-                    data["components_list"] = [
-                        _dict_to_component_string(it) if isinstance(it, dict) else str(it)
-                        for it in data["components_list"]
-                    ]
-        except Exception:
-            # Be permissive; if normalization fails, let pydantic validation raise helpful errors
-            pass
-        return pydantic_model(**data)
-    except Exception as e:
-        raise Exception(f"Zhipu JSON 解析失败，请检查输出格式。详情: {e}")
-
-def calldeepseek_pydantic(prompt, sys_prompt, pydantic_model):
-    """Calling openai with pydantic model.
-
-    Args:
-        prompt: The prompt to send to the model.
-        sys_prompt: The system prompt to send to the model.
-        pydantic_model: The pydantic model to use for the completion.
-    """
-    client = ZhipuAI(base_url='https://integrate.api.nvidia.com/v1', api_key=os.getenv("DEEPSEEK_API_KEY"))
-
-    completion = client.beta.chat.completions.parse(
-        model="deepseek-ai/deepseek-r1",
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        response_format=pydantic_model,
-    )
-    
-    message = completion.choices[0].message
-    if message.parsed:
-        return message.parsed
-    else:
-        print(message.refusal)
-        return message.refusal
-
-def callgoogle_pydantic(prompt, sys_prompt, pydantic_model):
-    genai.configure(api_key=os.getenv("GOOGLEGENAI_API_KEY"))
-    prompt = truncate_prompt(prompt)
-    model=genai.GenerativeModel(
-    model_name='gemini-1.5-pro',
-    system_instruction=sys_prompt)
-
-    response = model.generate_content(prompt,
-        generation_config=genai.types.GenerationConfig(
-            candidate_count=1,
-            temperature=0.5,
-            response_mime_type='application/json',
-            response_schema=pydantic_model)
-    )
-    
-    with open('google_response.yml', 'w') as outfile:
-        yaml.dump(response.text, outfile)
-    
-    class Struct:
-        def __init__(self, **entries):
-            self.__dict__.update(entries)
-    response_dict = json.loads(response.text)
-    s = Struct(**response_dict)
-    return s
 
 def parse_and_validate_list(string):
-    """Parse and validate a list from a string.
-
-    Args:
-        string: The string to parse and validate.
-    """
+    """Parse and validate a list from a string."""
     try:
-        # Clean up the string - remove any markdown formatting
         cleaned_string = string.strip()
-        if cleaned_string.startswith('```'):
-            # Remove markdown code blocks
-            lines = cleaned_string.split('\n')
-            if lines[0].startswith('```'):
+        if cleaned_string.startswith("```"):
+            lines = cleaned_string.split("\n")
+            if lines[0].startswith("```"):
                 lines = lines[1:]
-            if lines[-1].startswith('```'):
+            if lines[-1].startswith("```"):
                 lines = lines[:-1]
-            cleaned_string = '\n'.join(lines).strip()
-        
-        # Remove language identifiers at the beginning (like "python", "yaml", etc.)
-        lines = cleaned_string.split('\n')
-        if lines and lines[0].strip().lower() in ['python', 'yaml', 'json']:
-            lines = lines[1:]
-            cleaned_string = '\n'.join(lines).strip()
-        
-        # Step 1: Parse the string
-        parsed_list = ast.literal_eval(cleaned_string)
+            cleaned_string = "\n".join(lines).strip()
 
-        # Step 2: Check if the parsed result is a list
+        lines = cleaned_string.split("\n")
+        if lines and lines[0].strip().lower() in ["python", "yaml", "json"]:
+            lines = lines[1:]
+            cleaned_string = "\n".join(lines).strip()
+
+        parsed_list = ast.literal_eval(cleaned_string)
         if not isinstance(parsed_list, list):
             raise ValueError(f"Parsed result is not a list, got {type(parsed_list)}: {parsed_list}")
-
-        # Step 3: Verify that all elements in the list are integers
         if all(isinstance(item, int) for item in parsed_list):
             return parsed_list
-        else:
-            non_integers = [item for item in parsed_list if not isinstance(item, int)]
-            raise ValueError(f"Not all elements in the list are integers. Non-integers: {non_integers}")
 
-    except (ValueError, SyntaxError) as e:
-        print(f"Error parsing list from string: {e}")
+        non_integers = [item for item in parsed_list if not isinstance(item, int)]
+        raise ValueError(f"Not all elements in the list are integers. Non-integers: {non_integers}")
+    except (ValueError, SyntaxError) as error:
+        print(f"Error parsing list from string: {error}")
         print(f"Original string: {string}")
         return None
 
-# @backoff.on_exception(backoff.expo, RateLimitError)
-def call_deepseek(prompt, sys_prompt="", model="deepseek-reasoner", n_completion=1):
-    """Calling openai API.
 
-    Args:
-        prompt: The prompt to send to the model.
-        sys_prompt: The system prompt to send to the model.
-        model: The model to use for the completion.
-    """
-    prompt = truncate_prompt(prompt)
-
-    client = ZhipuAI(base_url='https://api.deepseek.com/v1', api_key=os.getenv("DEEPSEEK_API_KEY"))
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0.6,
-        n=n_completion,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        stream=False
-    )
-    
-    while isinstance(response, str):
-        response = client.chat.completions.create(
-        model=model,
-        temperature=0.6,
-        n=n_completion,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        stream=False
-    )
-    
-    # Track token usage
-    try:
-        # Get token counts from response
-        input_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'prompt_tokens') else 0
-        output_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'completion_tokens') else 0
-        
-        # If we can't get token counts from response, use fast DeepSeek tokenizer
-        if input_tokens == 0 or output_tokens == 0:
-            # Use fast DeepSeek tokenizer for accurate counting
-            if input_tokens == 0:
-                # Count input tokens (prompt + system prompt)
-                input_text = prompt + sys_prompt
-                input_tokens = count_deepseek_tokens(input_text)
-                if input_tokens is None:
-                    # Fallback to tiktoken
-                    input_tokens = len(tokenizer.encode(input_text))
-            
-            if output_tokens == 0:
-                # Count output tokens
-                if n_completion == 1:
-                    output_tokens = count_deepseek_tokens(response.choices[0].message.content)
-                    if output_tokens is None:
-                        output_tokens = len(tokenizer.encode(response.choices[0].message.content))
-                else:
-                    # For multiple completions, sum all output tokens
-                    output_tokens = 0
-                    for choice in response.choices:
-                        token_count = count_deepseek_tokens(choice.message.content)
-                        if token_count is None:
-                            token_count = len(tokenizer.encode(choice.message.content))
-                        output_tokens += token_count
-        
-        # Add to session token usage (assuming not cached for now)
-        add_token_usage(input_tokens, output_tokens, is_cached=False)
-        
-    except Exception as e:
-        # If token tracking fails, continue without it
-        print(f"Token tracking error in call_deepseek: {e}")
-        # Fallback to tiktoken estimation
-        try:
-            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
-            if n_completion == 1:
-                output_tokens = len(tokenizer.encode(response.choices[0].message.content))
-            else:
-                output_tokens = sum(len(tokenizer.encode(choice.message.content)) for choice in response.choices)
-            add_token_usage(input_tokens, output_tokens, is_cached=False)
-        except Exception as e2:
-            print(f"Fallback token tracking also failed: {e2}")
-    
-    # function to remove COT outputs in DeepSeek API calls
-    splice = lambda x : re.sub(r'<think>.*?</think>', '', x, flags=re.DOTALL)
-    
-        # yaml.dump(response.text, outfile)
-
-    if n_completion == 1:
-        with open('deepseek_response.yml', 'w') as outfile:
-            yaml.dump(splice(response.choices[0].message.content), outfile)
-        return splice(response.choices[0].message.content)
-    else:
-        with open('deepseek_response.yml', 'w') as outfile:
-            yaml.dump(splice(response.choices[0].message.content), outfile)
-        return [splice(r.message.content) for r in response.choices]
-        
-def call_llm(prompt, sys_prompt,llm_api_selection="nvidia/nemotron-4-340b-instruct"):
+def call_llm(prompt, sys_prompt, llm_api_selection="glm-4-flash"):
     """Call the LLM API.
 
     Args:
         prompt: The prompt to send to the model.
         sys_prompt: The system prompt to send to the model.
-        llm_api_selection: The API to use for the completion.
+        llm_api_selection: The model name to use for the completion.
     """
     try:
-        # Route to Zhipu (智谱) if the selection indicates a GLM/ChatGLM/Zhipu model
-        # Accept common prefixes: glm-, glm, chatglm, chatglm_turbo, zhipu
-        llm_sel_lower = llm_api_selection.lower()
-        # GLM-5 使用阿里云百炼 API
-        if llm_api_selection == "glm-5":
-            return call_aliyun(prompt, sys_prompt, llm_api_selection)
-        # GLM-4 及其他智谱模型使用智谱 AI API
-        if llm_sel_lower.startswith("gpt-") or llm_sel_lower.startswith("glm-4") or llm_sel_lower.startswith("chatglm") or llm_sel_lower.startswith("zhipu") or llm_sel_lower == "glm-4":
-            return call_zhipu(prompt, sys_prompt, llm_api_selection)
-        if llm_api_selection[:4] == "nvid":
-            print("NVIDIA")
-            return call_nvidia(prompt,sys_prompt, llm_api_selection)
-        elif llm_api_selection[:2] == "o1" or llm_api_selection[:2] == "o3":
-            return call_openai_reasoning(
-                f"{prompt} \n {sys_prompt}", model=llm_api_selection
-            )
-        elif llm_api_selection[:8] == "deepseek":
-            return call_deepseek(
-                prompt, sys_prompt, llm_api_selection
-                )
-        elif llm_api_selection == 'gemini-1.5-flash':
-            return call_google(prompt, sys_prompt, model='gemini-1.5-flash')
-        elif llm_api_selection == 'gemini-2.0-flash':
-            return call_google(prompt, sys_prompt, model='gemini-2.0-flash')
-        elif llm_api_selection == 'gemini-1.5-pro':
-            return call_google(prompt, sys_prompt, model='gemini-1.5-pro')
-        elif llm_api_selection == "gemini-2.5-pro-preview-03-25":
-            return call_google(prompt, sys_prompt, model="gemini-2.5-pro-preview-03-25")
-        elif llm_api_selection == "gemini-2.5-pro":
-            return call_google(prompt, sys_prompt, model="gemini-2.5-pro")
-        elif llm_api_selection[:6] == "claude":
-            return call_anthropic(prompt, sys_prompt, model=llm_api_selection)
-        else:
-            # Default fallback - try Zhipu
-            return call_zhipu(prompt, sys_prompt, "glm-4")
+        if llm_api_selection and llm_api_selection.strip():
+            return call_model_api(prompt, sys_prompt, llm_api_selection.strip())
+        return call_model_api(prompt, sys_prompt, "")
     except Exception as e:
         # Demo mode fallback when all APIs fail
         print(f"API unavailable for call_llm, using demo mode. Error: {e}")
@@ -1820,46 +711,132 @@ class InputEntities(BaseModel):
     """Pydantic model for input entities.
 
     Args:
-        design_type: The intent of the user ("single_component" or "circuit_routing").
         title: The title of the input (optional).
         components_list: The list of components in the input.
         circuit_instructions: The instructions for the circuit.
         brief_summary: The brief summary of the input.
     """
 
-    design_type: str
     title: str = ""
     components_list: list[str]
     circuit_instructions: str
     brief_summary: str
 
 
-def entity_extraction(input_prompt):
+class DesignModeDecision(BaseModel):
+    """Pydantic model for deciding whether a request targets one device or a routed circuit."""
+
+    design_type: str
+    confidence: float
+    reason: str
+
+
+def _fallback_design_mode(input_prompt, extracted_entities=None):
+    """Heuristic fallback for design mode classification when the agent call fails."""
+    extracted_entities = extracted_entities or {}
+    components = extracted_entities.get("components_list", []) if isinstance(extracted_entities, dict) else []
+    circuit_instructions = ""
+
+    if isinstance(extracted_entities, dict):
+        circuit_instructions = str(extracted_entities.get("circuit_instructions", "") or "").strip()
+
+    normalized_components = [str(component).strip() for component in components if str(component).strip()]
+    prompt_lower = str(input_prompt or "").lower()
+    routing_cues = (
+        "connect",
+        "route",
+        "routing",
+        "cascade",
+        "cascaded",
+        "tree",
+        "mesh",
+        "network",
+        "link",
+        "interconnect",
+        "to each other",
+    )
+    has_routing_cue = any(cue in prompt_lower for cue in routing_cues)
+
+    if len(normalized_components) <= 1 and not circuit_instructions and not has_routing_cue:
+        design_type = "single_component"
+        reason = "Fallback heuristic: one component and no routing instructions."
+    else:
+        design_type = "circuit_routing"
+        reason = "Fallback heuristic: multiple components or routing intent detected."
+
+    return {
+        "design_type": design_type,
+        "confidence": 0.35,
+        "reason": reason,
+    }
+
+
+def design_mode_agent(input_prompt, extracted_entities=None):
+    """Use a dedicated agent prompt to decide whether the request is single-component or multi-component."""
+    extracted_entities = extracted_entities or {}
+
+    if prompts and "design_mode_agent" in prompts:
+        sys_prompt = prompts["design_mode_agent"]
+    else:
+        sys_prompt = """You are a photonic workflow router.
+        Decide whether the request should enter:
+        1. \"single_component\": optimize or generate one standalone device.
+        2. \"circuit_routing\": build or route multiple devices together.
+
+        Output JSON with fields:
+        - design_type: \"single_component\" or \"circuit_routing\"
+        - confidence: float between 0 and 1
+        - reason: one concise sentence
+        """
+
+    agent_input = {
+        "user_prompt": input_prompt,
+        "extracted_entities": extracted_entities,
+    }
+
+    try:
+        result = callgpt_pydantic(
+            json.dumps(agent_input, ensure_ascii=False, indent=2),
+            sys_prompt,
+            DesignModeDecision,
+        ).model_dump()
+        if result.get("design_type") not in {"single_component", "circuit_routing"}:
+            raise ValueError(f"Invalid design_type from design_mode_agent: {result}")
+        return result
+    except Exception as e:
+        print(f"API unavailable for design_mode_agent, using fallback mode. Error: {e}")
+        return _fallback_design_mode(input_prompt, extracted_entities)
+
+
+def entity_extraction(input_prompt, design_type=None):
     """Extract entities from the input prompt.
 
     Args:
         input_prompt: The input prompt to extract entities from.
+        design_type: Optional workflow mode from the independent design mode agent.
     """
-    # Use the new prompt from prompts.yaml that includes intent detection
-    if prompts and 'entity_extraction_with_intent' in prompts:
+    # Use the extraction-only prompt. Keep backward compatibility with the old key.
+    if prompts and 'entity_extraction' in prompts:
+        sys_prompt = prompts['entity_extraction']
+    elif prompts and 'entity_extraction_with_intent' in prompts:
         sys_prompt = prompts['entity_extraction_with_intent']
     else:
         # Fallback to hardcoded prompt if yaml is missing key
         sys_prompt = """You are an expert photonic circuit architect. 
         Your task is to analyze the user's input and extract technical specifications.
-        
-        CRITICAL: You must classify the user's INTENT into one of two modes:
-        1. "single_component": The user wants to design/optimize a SINGLE device.
-        2. "circuit_routing": The user wants to connect multiple devices.
 
         Output a JSON object with the following fields:
-        - design_type: "single_component" or "circuit_routing"
+        - title: concise design title
         - components_list: [list of component names found]
         - circuit_instructions: (string) description of connections if any
         - brief_summary: (string) summary of the request
-        
-        If unsure, default to "circuit_routing" unless it's clearly a single device request.
         """
+
+    if design_type in {"single_component", "circuit_routing"}:
+        sys_prompt += (
+            "\n\nWorkflow context (already decided by a separate routing agent): "
+            f"{design_type}. Use this as context only. Do not output a design_type field."
+        )
 
     # If the input is very long (paper processing), we might want to stick to the paper extraction logic
     # But for now, let's funnel everything through the intent-aware prompt as per instructions
@@ -1876,7 +853,6 @@ def entity_extraction(input_prompt):
         # Demo mode fallback
         print(f"API unavailable for entity_extraction, using demo mode. Error: {e}")
         return {
-            "design_type": "single_component",
             "title": "Demo Component",
             "components_list": ["mzi"],
             "circuit_instructions": "Demo mode: API unavailable",

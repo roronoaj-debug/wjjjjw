@@ -7,32 +7,40 @@ import sys
 import uuid
 from pathlib import Path
 
-import gdsfactory as gf
 import numpy as np
-import jax.numpy as jnp
+from PhotonicsAI.runtime_env import configure_ca_certificates
+
+configure_ca_certificates()
+
+try:
+    import gdsfactory as gf
+except ImportError:
+    gf = None
+jnp = np
 
 # from io import BytesIO
 import matplotlib.pyplot as plt
-import sax
 import yaml
-from bayes_opt import BayesianOptimization
-from gdsfactory.generic_tech import get_generic_pdk
+try:
+    from bayes_opt import BayesianOptimization
+except ImportError:
+    BayesianOptimization = None
+try:
+    from gdsfactory.generic_tech import get_generic_pdk
+except ImportError:
+    get_generic_pdk = None
 
 from PhotonicsAI.config import PATH
-from PhotonicsAI.Photon import tidy3d_runner
-
-# import copy
+from PhotonicsAI.Photon import meep_runner
 from PhotonicsAI.Photon import utils
 
-genericPDK = get_generic_pdk()
+required_models = []
+genericPDK = get_generic_pdk() if get_generic_pdk else None
 
-LAYER = genericPDK.layers
-layer_views = genericPDK.layer_views
-layer_stack = genericPDK.layer_stack
-cross_sections = genericPDK.cross_sections
-
-# import sys
-# sys.path.append("/Users/vahid/Downloads/PhotonicsAI_Project")
+LAYER = genericPDK.layers if genericPDK else {}
+layer_views = genericPDK.layer_views if genericPDK else {}
+layer_stack = genericPDK.layer_stack if genericPDK else {}
+cross_sections = genericPDK.cross_sections if genericPDK else {}
 
 
 def list_python_files(directory):
@@ -41,67 +49,51 @@ def list_python_files(directory):
     Args:
         directory: The directory to search for Python files.
     """
-    return [f.stem for f in Path(directory).glob("*.py") if f.name != "__init__.py"]
+    excluded = {"__init__.py", "_simulation_removed.py"}
+    return [f.stem for f in Path(directory).glob("*.py") if f.name not in excluded]
 
 
 def import_modules(module_names):
-    """Imports the specified function from each module in the given package and returns them in a dictionary.
-
-    Args:
-        module_names: List of module names to import.
-    """
+    """Import component factories from the design library."""
     functions = {}
     for module_name in module_names:
         full_module_name = f"PhotonicsAI.KnowledgeBase.DesignLibrary.{module_name}"
-        module = importlib.import_module(full_module_name)
-        func = getattr(module, module_name)
+        try:
+            module = importlib.import_module(full_module_name)
+            func = getattr(module, module_name)
+        except Exception as error:
+            print(f"Skipping design-library module {full_module_name}: {error}")
+            continue
         globals()[module_name] = func
         functions[module_name] = func
     return functions
 
 
-def import_models(module_names):
-    """Imports the specified function from each module in the given package and returns them in a dictionary.
+if gf and genericPDK:
+    module_names = list_python_files(PATH.pdk)
+    cells = import_modules(module_names)
 
-    Args:
-        module_names: List of module names to import.
-    """
-    models_dict = {}
-    for module_name in module_names:
-        full_module_name = f"PhotonicsAI.KnowledgeBase.DesignLibrary.{module_name}"
-        module = importlib.import_module(full_module_name)
-        if hasattr(module, "get_model"):
-            func = module.get_model
-            result = func()
-            # Handle both dict and function returns
-            if isinstance(result, dict):
-                models_dict.update(result)
-            # If it returns a function, skip it (not a valid model format)
-    return models_dict
+    DemoPDK = gf.Pdk(
+        name="DemoPDK",
+        layers=LAYER,
+        cross_sections=cross_sections,
+        cells=cells,
+        layer_views=layer_views,
+    )
+    DemoPDK.activate()
 
-
-# module_names = list_python_files("../KnowledgeBase/DesignLibrary/")
-module_names = list_python_files(PATH.pdk)
-cells = import_modules(module_names)
-all_models = import_models(module_names)
-
-DemoPDK = gf.Pdk(
-    name="DemoPDK",
-    layers=LAYER,
-    cross_sections=cross_sections,
-    cells=cells,
-    layer_views=layer_views,
-)
-DemoPDK.activate()
-
-DemoPDK = gf.Pdk(
-    name="DemoPDK",
-    layers=LAYER,
-    cross_sections=cross_sections,
-    cells=cells,
-    layer_views=layer_views,
-)
-DemoPDK.activate()
+    DemoPDK = gf.Pdk(
+        name="DemoPDK",
+        layers=LAYER,
+        cross_sections=cross_sections,
+        cells=cells,
+        layer_views=layer_views,
+    )
+    DemoPDK.activate()
+else:
+    module_names = []
+    cells = {}
+    DemoPDK = None
 
 
 def generate_unique_identifier(length: int = 32) -> str:
@@ -158,39 +150,13 @@ def yaml_netlist_to_gds(session, ignore_links=False):
     # gf_netlist_dict = c.get_netlist(recursive=False)
 
     try:
-        gf_netlist_dict_recursive = c.get_netlist(recursive=True)
-        required_models = sax.get_required_circuit_models(gf_netlist_dict_recursive)
-
-        for name in required_models:
-            if name not in all_models:
-                print(
-                    f"+++++++ MODEL ERROR: {name} is not available in all_models dictionary"
-                )
-
+        c.get_netlist(recursive=True)
+        required_models = []
     except Exception:
         print("++++++++++++ Recursive netlist failed")
-        gf_netlist_dict_recursive = c.get_netlist(recursive=False)
-        required_models = sax.get_required_circuit_models(gf_netlist_dict_recursive)
-        required_models.append("ERROR: recursive netlist failed")
+        c.get_netlist(recursive=False)
+        required_models = ["ERROR: recursive netlist failed"]
         pass
-
-    # Decide whether to run SAX based on availability of at least two distinct external ports
-    ports_map = data.get("ports", {}) if isinstance(data, dict) else {}
-    endpoints = set(str(v) for v in ports_map.values())
-    has_two_distinct_ports = len(endpoints) >= 2
-
-    if has_two_distinct_ports:
-        _circuit, info = sax.circuit(
-            gf_netlist_dict_recursive, all_models, backend="default"
-        )
-        session["p400_sax_circuit"] = _circuit
-    else:
-        # Skip SAX: provide a harmless dummy circuit and note that models may be unused
-        def _dummy_circuit(wl=None, **kwargs):
-            wl = wl if wl is not None else np.linspace(1.5, 1.6, 16)
-            return {("o1", "o1"): np.zeros_like(wl)}
-
-        session["p400_sax_circuit"] = _dummy_circuit
 
     gdsfig = c.plot(return_fig=True, show_labels=True)
     plt.savefig("build/plot_gds.png")
@@ -203,13 +169,11 @@ def yaml_netlist_to_gds(session, ignore_links=False):
     # session['gf_netlist_dict'] = gf_netlist_dict
     # session['gf_netlist_dict_recursive'] = gf_netlist_dict_recursive
     session["p400_required_models"] = required_models
-    # session["p400_sax_circuit"] is set above (actual or dummy)
-
-    # Best-effort: log intended Tidy3D calls and write a minimal config/snapshot
+    # Best-effort: log intended MEEP handoff config without blocking main flow.
     try:
-        tidy3d_runner.try_log_tidy3d(session)
+        meep_runner.try_log_meep(session)
     except Exception as _e:
-        # Never let Tidy3D logging break the main flow
+        # Never let simulation logging break the main flow
         pass
 
     return c, session
@@ -276,12 +240,20 @@ def get_ports_info(circuit_dsl):
     for _c_name, c_data in circuit_dsl["nodes"].items():
         if "properties" not in c_data:
             c_data["properties"] = {}
-        index = list_of_cnames.index(
-            c_data["component"]
-        )  # find the index of the component in the list
-        # print(docs[index])
-        docstring_dict = yaml.safe_load(list_of_docs[index].split("---", 1)[-1])
-        c_data["properties"]["ports"] = docstring_dict["ports"]
+        component_name = c_data.get("component")
+        if component_name not in list_of_cnames:
+            c_data["properties"].setdefault("ports", {})
+            continue
+
+        index = list_of_cnames.index(component_name)
+        raw_doc = list_of_docs[index]
+        if not isinstance(raw_doc, str) or not raw_doc.strip():
+            c_data["properties"].setdefault("ports", {})
+            continue
+
+        yaml_payload = raw_doc.split("---", 1)[-1] if "---" in raw_doc else raw_doc
+        docstring_dict = yaml.safe_load(yaml_payload) or {}
+        c_data["properties"]["ports"] = docstring_dict.get("ports", {})
         # c_data['info']['specs'] = docstring_dict['Specs']
         # c_data['info']['args'] = docstring_dict['Args']
         # c_data['info']['transmission_fn'] = docstring_dict['transmission_fn']
@@ -301,12 +273,18 @@ def info_netlist(d):
 
     try:
         for _c_name, c_data in netlist_dict["instances"].items():
-            index = cnames.index(
-                c_data["component"]
-            )  # find the index of the component in the list
-            docstring_dict = yaml.safe_load(docs[index])
-            c_data["info"]["specs"] = docstring_dict["Specs"]
-            c_data["info"]["args"] = docstring_dict["Args"]
+            component_name = c_data.get("component")
+            if component_name not in cnames:
+                continue
+
+            index = cnames.index(component_name)
+            raw_doc = docs[index]
+            if not isinstance(raw_doc, str) or not raw_doc.strip():
+                continue
+
+            docstring_dict = yaml.safe_load(raw_doc) or {}
+            c_data["info"]["specs"] = docstring_dict.get("Specs", {})
+            c_data["info"]["args"] = docstring_dict.get("Args", {})
             # c_data['info']['transmission_fn'] = docstring_dict['transmission_fn']
 
         updated_netlist = yaml.dump(netlist_dict, default_flow_style=False)
@@ -337,6 +315,8 @@ def circuit_optimizer(session):
     Args:
         session: The streamlit session object containing the circuit DSL and other information.
     """
+    print("SAX-based circuit optimization has been removed.")
+    return session["p400_gf_netlist"]
 
     def fom_func(specs_dict, optparams, netlist_yaml):
         # get SAX simulation

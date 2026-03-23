@@ -6,21 +6,27 @@ Created on Mon Feb 10 13:59:52 2025
 """
 import subprocess
 import os
-import gdsfactory as gf
+import shutil
+import sys
+from pathlib import Path
 
 def run_drc(gds_file, testcase):
     print("Running DRC in KLayout...")
-    
+
+    configured_klayout = os.getenv("KLAYOUT_BIN")
+
     # Try to find KLayout executable
     klayout_paths = [
-        "klayout",  # If klayout is in PATH
+        configured_klayout,
+        shutil.which("klayout") or "klayout",
+        str(Path(sys.executable).with_name("klayout")),
         "/usr/bin/klayout",
         "/usr/local/bin/klayout",
         "/opt/klayout/bin/klayout",
     ]
     
     klayout_path = None
-    for path in klayout_paths:
+    for path in dict.fromkeys(klayout_paths):
         try:
             result = subprocess.run([path, "-v"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -31,7 +37,7 @@ def run_drc(gds_file, testcase):
             continue
     
     if klayout_path is None:
-        print("Error: KLayout not found. Please install KLayout or update the path in drc.py")
+        print("Error: KLayout executable not found. Set KLAYOUT_BIN to the klayout binary path if it is installed outside PATH.")
         return
     
     drc_script = "./PhotonicsAI/Photon/drc/drc_script.drc"

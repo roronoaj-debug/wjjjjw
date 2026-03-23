@@ -84,8 +84,8 @@ if __name__ == '__main__':
     html_file = Path(__file__).parent / 'workflow_diagram.html'
     
     # 输出路径
-    png_file = html_file.parent / 'PhIDO_Workflow_Diagram.png'
-    pdf_file = html_file.parent / 'PhIDO_Workflow_Diagram.pdf'
+    png_file = html_file.parent / 'OptiAi_Workflow_Diagram.png'
+    pdf_file = html_file.parent / 'OptiAi_Workflow_Diagram.pdf'
     
     if not html_file.exists():
         print(f"❌ HTML文件不存在: {html_file}")

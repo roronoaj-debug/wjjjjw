@@ -31,7 +31,7 @@ Reference:
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
+import numpy as jnp
 
 # Paper-extracted parameters from APL Photonics 2024
 PAPER_PARAMS = {

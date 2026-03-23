@@ -21,9 +21,8 @@ Args:
 """
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import sax_models_removed
 from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
 
 
@@ -48,33 +47,7 @@ def _mmi1x2(
 
 
 def get_model(model="fdtd"):
-    if model == "ana":
-        return {"_mmi1x2": get_model_ana}
-    if model == "fdtd":
-        return {"_mmi1x2": get_model_fdtd}
-
-
-def get_model_fdtd(wl=1.55):
-    file_path = get_file_path(
-        "FDTD/cband/mmi1x2/mmi1x2_length12p8_width3p8_gap0p25_taperwidth1p4.npz"
-    )
-    model_data = model_from_npz(file_path)
-    return model_data(wl=wl)
-
-
-def get_model_ana(wl=1.5, coupling: float = 0.5):
-    """A simple coupler model."""
-    # wg_factor = np.exp(1j * np.pi * 2.34 * 1 / wl)
-    wg_factor = 1
-    kappa = wg_factor * coupling**0.5
-    tau = wg_factor * (1 - coupling) ** 0.5
-    sdict = sax.reciprocal(
-        {
-            ("o1", "o2"): tau,
-            ("o1", "o3"): 1j * kappa,
-        }
-    )
-    return sdict
+    return sax_models_removed("_mmi1x2")
 
 
 # class mmi1x2:
@@ -108,35 +81,5 @@ def get_model_ana(wl=1.5, coupling: float = 0.5):
 #         return None
 
 if __name__ == "__main__":
-    import matplotlib
-    import matplotlib.pyplot as plt
-
-    matplotlib.use("macosx")
-
-    c = gf.Component()
-    ref = c << _mmi1x2(width_mmi=10)
-    c.add_port("o1", port=ref.ports["o1"])
-    c.add_port("o2", port=ref.ports["o2"])
-    c.add_port("o3", port=ref.ports["o3"])
-
-    # c.plot()
-
-    print(c.get_netlist())
-    print()
-    # sys.exit()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    # print( np.abs(_c(wl = 1.35)['o1','o2'])**2 )
-
-    plt.figure()
-    wl = np.linspace(1.4, 1.6, 128)
-    S21 = _c(wl=wl)["o1", "o2"]
-    S31 = _c(wl=wl)["o1", "o3"]
-    plt.plot(wl, np.abs(S31) ** 2)
-    plt.plot(wl, np.abs(S21) ** 2)
-    # gsax.plot_model(get_model_f/dtd)
-    plt.show()
+    component = _mmi1x2(width_mmi=10)
+    print(component.get_netlist())

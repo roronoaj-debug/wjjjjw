@@ -13,10 +13,9 @@ Args:
 """
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
-from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import \
+    sax_models_removed
 
 
 @gf.cell
@@ -34,39 +33,7 @@ def _bend_s(
 
 
 def get_model(model="fdtd"):
-    if model == "ana":
-        return {"bend_s": get_model_ana}
-    if model == "fdtd":
-        return {"bend_s": get_model_fdtd}
-
-
-def get_model_fdtd(wl=1.55):
-    file_path = get_file_path("FDTD/cband/bend_s/bend_s_size40__26_npoints99.npz")
-    model_data = model_from_npz(file_path)
-    return model_data(wl=wl)
-
-
-def get_model_ana(wl=1.55):
-    # TODO: we need to find how long the curve is...
-    # for now i approximate this from size-x
-    wl0 = 1.55
-    size_xy = (100, 4)
-
-    length = size_xy[0]
-    loss = 0.001
-    neff = 2.34
-    ng = 3.4
-    dwl = wl - wl0
-    dneff_dwl = (ng - neff) / wl0
-    neff = neff - dwl * dneff_dwl
-    phase = 2 * np.pi * neff * length / wl
-    transmission = 10 ** (-loss * length / 20) * np.exp(1j * phase)
-    sdict = sax.reciprocal(
-        {
-            ("o1", "o2"): transmission,
-        }
-    )
-    return sdict
+    return sax_models_removed("bend_s")
 
 
 # class bend_s:
@@ -96,18 +63,5 @@ def get_model_ana(wl=1.55):
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
     c = _bend_s()
     print(c.get_netlist())
-    print()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    print(np.abs(_c(wl=1.35)["o1", "o2"]) ** 2)
-
-    c.plot()
-    plt.show()

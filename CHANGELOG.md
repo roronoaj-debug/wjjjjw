@@ -21,7 +21,7 @@
 - 启动建议：
 	- 本地：`streamlit run PhotonicsAI/Photon/webapp.py`
 	- 远程：`--server.address 0.0.0.0 --server.port 8501` 并做好端口开放/转发。
-- API Key：`.env` 配置 `ZHIPU_API_KEY`；`OPENAI_API_KEY` 可选用于严格结构化解析。
+- LLM 配置：`.env` 配置 `LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`。
 
 ### 兼容性
 - 对现有 DSL/模板兼容。如需 `mzi_2x2_heater_tin_cband` 支持可调宽度，后续可在组件中新增参数（默认不变）。

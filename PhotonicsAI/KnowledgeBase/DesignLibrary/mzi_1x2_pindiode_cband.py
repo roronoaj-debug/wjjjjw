@@ -89,8 +89,6 @@ def get_model(model="fdtd"):
 
 
 if __name__ == "__main__":
-    import sax
-
     c = gf.Component()
     ref = c << mzi_1x2_pindiode_cband()
     c.add_port("o1", port=ref.ports["o1"])
@@ -100,5 +98,4 @@ if __name__ == "__main__":
     # c.show()
     print("Footprint Estimate: " + str(c.xsize) + "um x " + str(c.ysize) + "um")
 
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
+    print(c.get_netlist())

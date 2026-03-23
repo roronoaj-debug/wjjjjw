@@ -5,7 +5,7 @@ import gdsfactory as gf
 def auto_pbs_pbr_ComparisonofLumerica_948(
     length: float = 30.0,
 ) -> gf.Component:
-    """Auto-generated PBS/PBR from: Comparison of Lumerical FDTD and Tidy3D for three-dimensional FDTD simulations of passivesiliconphotoniccomponents
+    """Auto-generated PBS/PBR from: Comparison of Lumerical FDTD and open-source FDTD for three-dimensional FDTD simulations of passivesiliconphotoniccomponents
     Source: https://arxiv.org/abs/2506.16665
     """
     c = gf.Component()

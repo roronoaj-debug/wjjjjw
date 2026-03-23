@@ -7,20 +7,27 @@ import pathlib
 import re
 from functools import lru_cache
 
-import gdsfactory as gf
 import importlib
 import inspect
-import jax
-import jax.numpy as jnp
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from PhotonicsAI.runtime_env import configure_ca_certificates
+
+configure_ca_certificates()
+
+try:
+    import gdsfactory as gf
+except ImportError:
+    gf = None
+jnp = np
 try:
     import pygraphviz as pgv
 except ImportError:
     pgv = None  # pygraphviz is optional
 import yaml
-from sax.saxtypes import Float, Model
+Float = float
+Model = object
 
 from PhotonicsAI.config import PATH
 
@@ -692,7 +699,6 @@ def model_from_npz(
     x = x[idxs]
     sp = {k: v[idxs] for k, v in sp.items()}
 
-    @jax.jit
     def model(wl: Float = wl):
         S = {}
         zero = jnp.zeros_like(x)

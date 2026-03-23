@@ -209,7 +209,7 @@ np.savez(
 对于简单的add-drop ring，可使用解析公式:
 
 ```python
-import jax.numpy as jnp
+import numpy as jnp
 
 def add_drop_ring_model(
     wl=1.55,           # 波长 (μm)
@@ -294,8 +294,7 @@ Reference: https://opg.optica.org/abstract.cfm?uri=ol-40-15-3556
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
-from functools import partial
+import numpy as jnp
 
 
 @gf.cell

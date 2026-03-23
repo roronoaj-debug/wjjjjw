@@ -17,10 +17,8 @@ Args:
 """
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
-from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import sax_models_removed
 
 # from PhotonicsAI.Photon.utils import validate_cell_settings
 
@@ -49,70 +47,9 @@ def _directional_coupler(
 
 
 def get_model(model: str = "fdtd") -> dict:
-    if model == "ana":
-        return {"_directional_coupler": get_model_ana}
-    if model == "fdtd":
-        return {"_directional_coupler": get_model_fdtd}
-
-
-def get_model_fdtd(wl=1.55):
-    file_path = get_file_path("FDTD/cband/coupler/coupler_adiabatic.npz")
-    # file_path = get_file_path('FDTD/cband/mmi2x2/mmi2x2_taper1p3_length36p2_width5p52_gap0p27.npz')
-    model_data = model_from_npz(file_path)
-    return model_data(wl=wl)
-
-
-def get_model_ana(wl=1.5, length=12):
-    """A simple coupler model."""
-    # wg_factor = np.exp(1j * np.pi * 2.34 * 1 / wl)
-    wg_factor = 1
-    coupling = (np.sin(np.pi * length / 6) + 1) / 2
-    # print('====COUPLING===>', coupling, length)
-    kappa = wg_factor * coupling**0.5
-    tau = wg_factor * (1 - coupling) ** 0.5
-    sdict = sax.reciprocal(
-        {
-            ("o1", "o3"): tau,
-            ("o1", "o4"): 1j * kappa,
-            ("o2", "o3"): 1j * kappa,
-            ("o2", "o4"): tau,
-        }
-    )
-    return sdict
+    return sax_models_removed("_directional_coupler")
 
 
 if __name__ == "__main__":
-    import matplotlib
-    import matplotlib.pyplot as plt
-
-    matplotlib.use("macosx")
-
-    c = gf.Component()
-    ref = c << _directional_coupler(dx=100, dy=40)
-    c.add_port("o1", port=ref.ports["o1"])
-    c.add_port("o2", port=ref.ports["o2"])
-    c.add_port("o3", port=ref.ports["o3"])
-    c.add_port("o4", port=ref.ports["o4"])
-
-    print(c.get_netlist())
-    print()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    # print( np.abs(_c(wl = 1.35)['o1','o4'])**2 )
-
-    # c.plot()
-    # plt.show()
-
-    plt.figure()
-    wl = np.linspace(1.4, 1.6, 128)
-    S41 = _c(wl=wl)["o1", "o4"]
-    S31 = _c(wl=wl)["o1", "o3"]
-    plt.plot(wl, np.abs(S31) ** 2)
-    plt.plot(wl, np.angle(S31))
-    # plt.plot(wl, np.abs(S41)**2)
-    # gsax.plot_model(get_model_f/dtd)
-    plt.show()
+    component = _directional_coupler(dx=100, dy=40)
+    print(component.get_netlist())

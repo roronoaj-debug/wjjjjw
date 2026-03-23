@@ -31,9 +31,10 @@ class Path:
 
 class Config(BaseSettings):
     model_config = SettingsConfigDict(env_file=dotenv_path, extra="ignore")
-    openai_api_key: str = ""
-    # 智谱AI（Zhipu/智谱）的 API Key
-    zhipu_api_key: str = "12ec8265f0264621a8d0d2965b93c81d.BADNP0oj0Jh7Y63t"
+    # Generic LLM runtime configuration
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = "glm-4-flash"
 
 
 PATH = Path()

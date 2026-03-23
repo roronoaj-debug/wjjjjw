@@ -29,8 +29,7 @@ DOI: https://doi.org/10.48550/arXiv.2402.10673
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
-from functools import partial
+import numpy as jnp
 
 
 # ==============================================================================

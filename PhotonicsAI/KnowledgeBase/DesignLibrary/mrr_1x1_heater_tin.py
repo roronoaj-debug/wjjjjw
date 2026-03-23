@@ -55,13 +55,6 @@ def get_model(model="fdtd"):
 if __name__ == "__main__":
     from pprint import pprint
 
-    import matplotlib
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import sax
-
-    matplotlib.use("macosx")
-
     # c = get_component({'delta_length':100, 'coupling1':0.1, 'coupling2':0.1})
     c = gf.Component()
     ref = c << mrr_1x1_heater_tin()
@@ -69,20 +62,3 @@ if __name__ == "__main__":
     c.add_port("o2", port=ref.ports["o2"])
 
     pprint(c.get_netlist())
-    print()
-    # sys.exit()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    print(np.abs(_c(wl=1.35)["o1", "o2"]) ** 2)
-
-    c.plot()
-
-    plt.figure()
-    wl = np.linspace(1.5, 1.6, 500)
-    S21 = _c(wl=wl)["o1", "o2"]
-    plt.plot(wl, np.abs(S21) ** 2)
-    plt.show()

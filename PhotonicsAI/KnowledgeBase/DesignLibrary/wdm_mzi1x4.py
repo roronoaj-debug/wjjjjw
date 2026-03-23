@@ -37,6 +37,7 @@ from PhotonicsAI.KnowledgeBase.DesignLibrary import (
 def wdm_mzi1x4(dy: float = 120) -> gf.Component:
     """The component."""
     dl = [100.965, 100.965 * 1.5, 100.965 * 1.25]
+    xs_1550 = gf.cross_section.cross_section(width=0.5, offset=0, layer="WG")
 
     c = gf.Component()
 
@@ -46,8 +47,8 @@ def wdm_mzi1x4(dy: float = 120) -> gf.Component:
     c3 = c << mzi_2x2_heater_tin_cband.mzi_2x2_heater_tin_cband(length=dl[2])
     c3.dmove((50 + c1.dxsize, 0 - c1.dysize / 2))
 
-    _route = gf.routing.route_single(c, port1=c2.ports["o1"], port2=c1.ports["o2"])
-    _route = gf.routing.route_single(c, port1=c3.ports["o1"], port2=c1.ports["o3"])
+    _route = gf.routing.route_single(c, port1=c2.ports["o1"], port2=c1.ports["o2"], cross_section=xs_1550)
+    _route = gf.routing.route_single(c, port1=c3.ports["o1"], port2=c1.ports["o3"], cross_section=xs_1550)
     # c2.connect("o1", c1.ports["o2"])
     # c3.connect("o2", c1.ports["o3"])
 
@@ -68,12 +69,6 @@ def get_model(model="ana"):
 
 
 if __name__ == "__main__":
-    import matplotlib
-    import matplotlib.pyplot as plt
-    import sax
-
-    matplotlib.use("TkAgg")
-
     c = gf.Component()
     ref1 = c << wdm_mzi1x4()
     c.add_port("o1", port=ref1.ports["o1"])
@@ -81,10 +76,4 @@ if __name__ == "__main__":
     c.add_port("o3", port=ref1.ports["o3"])
     c.add_port("o4", port=ref1.ports["o4"])
     c.add_port("o5", port=ref1.ports["o5"])
-    # ref1.dmirror()
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    c.plot()
-    plt.show()
-    # print("Footprint Estimate: " + str(c.dxsize) + "um x " + str(c.dysize) + "um")
+    print(c.get_netlist())

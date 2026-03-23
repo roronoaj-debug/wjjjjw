@@ -15,7 +15,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import os
 from datetime import datetime
 
-def create_pdf_summary(output_filename="PhIDO_Photonic_Devices_Summary.pdf"):
+def create_pdf_summary(output_filename="OptiAi_Photonic_Devices_Summary.pdf"):
     """创建光子器件库PDF摘要"""
     
     # 创建PDF文档
@@ -68,7 +68,7 @@ def create_pdf_summary(output_filename="PhIDO_Photonic_Devices_Summary.pdf"):
     )
     
     # 标题
-    elements.append(Paragraph("PhIDO Photonic Devices Library", title_style))
+    elements.append(Paragraph("OptiAi Photonic Devices Library", title_style))
     elements.append(Paragraph("光子器件设计库 - 新增器件清单与分类", subtitle_style))
     elements.append(Spacer(1, 0.3*inch))
     
@@ -248,9 +248,9 @@ def create_pdf_summary(output_filename="PhIDO_Photonic_Devices_Summary.pdf"):
     footer_text = """
     <para align=center>
     <font size=8 color="#666666">
-    PhIDO - Photonic Integrated Device Ontology<br/>
+    OptiAi - Photonic Integrated Device Ontology<br/>
     Design Library Summary | Generated from DesignLibrary/<br/>
-    For more information, visit the PhIDO repository
+    For more information, visit the OptiAi repository
     </font>
     </para>
     """

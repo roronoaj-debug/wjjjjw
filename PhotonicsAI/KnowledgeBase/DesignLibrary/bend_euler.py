@@ -15,10 +15,8 @@ Args:
 """
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
-from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import sax_models_removed
 
 # from PhotonicsAI.Photon.utils import validate_cell_settings
 
@@ -44,12 +42,15 @@ def bend_euler(
 ) -> gf.Component:
     """This is a bend (or generally arc shaped) waveguide, with an Euler curvature."""
     # geometrical_params = get_params(settings)
-    _args = locals()
+    _args = locals().copy()
 
     c = gf.Component()
     ref = c << gf.components.bend_euler(**_args)
     c.add_port("o1", port=ref.ports["o1"])
     c.add_port("o2", port=ref.ports["o2"])
+    c.info["radius"] = radius
+    c.info["angle"] = angle
+    c.info["width"] = width
 
     # c = c.flatten() # this gives an error!
     return c
@@ -79,67 +80,10 @@ def bend_euler(
 
 
 def get_model(model="fdtd"):
-    """This is a model."""
-    if model == "ana":
-        return {"bend_euler": get_model_ana}
-    if model == "fdtd":
-        return {"bend_euler": get_model_fdtd}
-
-
-def get_model_fdtd(wl=1.55, radius=10, angle=90):
-    """The FDTD model."""
-    file_path = get_file_path(
-        "FDTD/cband/bend_euler/bend_euler_npoints500_radius10.npz"
-    )
-    model_data = model_from_npz(file_path)
-    return model_data(wl=wl)
-
-
-def get_model_ana(wl=1.55, radius=10, angle=90):
-    """The analytical model."""
-    neff = 2.34
-    ng = 3.4
-
-    # radius = config['radius']
-    # angle = config['angle']
-    def os(x):
-        return 0.01 * np.cos(24 * np.pi * x) + 0.01
-
-    # loss=0.0
-    loss = os(wl)
-
-    wl0 = 1.55
-    length = radius * angle * (np.pi / 180)
-
-    dwl = wl - wl0
-    dneff_dwl = (ng - neff) / wl0
-    neff = neff - dwl * dneff_dwl
-    phase = 2 * np.pi * neff * length / wl
-    transmission = 10 ** (-loss * length / 20) * np.exp(1j * phase)
-    sdict = sax.reciprocal(
-        {
-            ("o1", "o2"): transmission,
-        }
-    )
-    return sdict
+    """Return a placeholder now that SAX models were removed."""
+    return sax_models_removed("bend_euler")
 
 
 if __name__ == "__main__":
-    c = gf.Component()
-    ref = c << bend_euler(radius=100)
-    c.add_port("o1", port=ref.ports["o1"])
-    c.add_port("o2", port=ref.ports["o2"])
-
-    # pprint(c.get_netlist())
-    # print()
-    # sys.exit()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model(model="fdtd"))
-    print(_c(wl=1.55))
-    # print( np.abs(_c(wl = 1.35)['o1','o2'])**2 )
-
-    # c.plot()
-    # plt.show()
+    component = bend_euler(radius=100)
+    print(component.get_netlist())

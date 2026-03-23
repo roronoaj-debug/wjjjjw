@@ -24,8 +24,7 @@ Reference: https://opg.optica.org/abstract.cfm?uri=ol-40-15-3556
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
-from functools import partial
+import numpy as jnp
 
 
 @gf.cell

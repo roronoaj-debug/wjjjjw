@@ -26,7 +26,6 @@ Args:
 """
 
 import gdsfactory as gf
-import sax
 
 from PhotonicsAI.KnowledgeBase.DesignLibrary import (
     _mmi1x2,
@@ -74,28 +73,9 @@ def get_model(model="fdtd"):
 
 
 if __name__ == "__main__":
-    import matplotlib
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    matplotlib.use("macosx")
-
     c = gf.Component()
     ref = c << mzi_1x1_heater_doped_si_cband()
     c.add_port("o1", port=ref.ports["o1"])
     c.add_port("o2", port=ref.ports["o2"])
 
-    # print(c.ports)
-    # print("Footprint Estimate: " + str(round(c.dxsize, 2)) + "um x " + str(round(c.dysize,2)) + "um")
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    # print( _c(wl = 1.55) )
-
-    plt.figure()
-    wl = np.linspace(1.3, 1.7, 200)
-    S = _c(wl=wl)["o1", "o2"]
-    plt.plot(wl, np.abs(S) ** 2)
-    plt.show()
+    print(c.get_netlist())

@@ -6,7 +6,7 @@ def auto_directional_coupler_ComparisonofLumerica_829(
     length: float = 20.0,
     gap: float = 0.2,
 ) -> gf.Component:
-    """Auto-generated Directional Coupler from: Comparison of Lumerical FDTD and Tidy3D for three-dimensional FDTD simulations of passivesiliconphotonic components
+    """Auto-generated Directional Coupler from: Comparison of Lumerical FDTD and open-source FDTD for three-dimensional FDTD simulations of passivesiliconphotonic components
     Source: https://arxiv.org/abs/2506.16665
     """
     c = gf.Component()

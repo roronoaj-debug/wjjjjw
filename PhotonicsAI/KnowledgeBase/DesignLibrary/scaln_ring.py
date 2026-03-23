@@ -29,7 +29,7 @@ DOI: https://doi.org/10.1063/5.0208517
 
 import gdsfactory as gf
 from gdsfactory.typings import CrossSectionSpec
-import jax.numpy as jnp
+import numpy as jnp
 
 
 # ==============================================================================

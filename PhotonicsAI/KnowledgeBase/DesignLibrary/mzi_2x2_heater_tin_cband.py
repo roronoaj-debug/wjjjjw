@@ -129,13 +129,6 @@ def get_model(model="fdtd"):
 
 
 if __name__ == "__main__":
-    import matplotlib
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import sax
-
-    matplotlib.use("macosx")
-
     c = gf.Component()
     ref = c << mzi_2x2_heater_tin_cband()
     c.add_port("o1", port=ref.ports["o1"])
@@ -145,20 +138,4 @@ if __name__ == "__main__":
 
     print("Footprint Estimate: " + str(c.dxsize) + "um x " + str(c.dysize) + "um")
 
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    # print(recnet)
-    c.plot()
-    # plt.show()
-
-    _c, info = sax.circuit(recnet, get_model())
-    # print( _c(wl = 1.55) )
-
-    plt.figure()
-    wl = np.linspace(1.1, 1.7, 200)
-    S = _c(wl=wl)["o1", "o3"]
-    SS = _c(wl=wl)["o1", "o4"]
-    plt.plot(wl, np.abs(S) ** 2)
-    plt.plot(wl, np.abs(SS) ** 2)
-    plt.show()
+    print(c.get_netlist())

@@ -15,10 +15,9 @@ Bandwidth:
 import math
 
 import gdsfactory as gf
-import numpy as np
-import sax
 
-from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
+from PhotonicsAI.KnowledgeBase.DesignLibrary._simulation_removed import \
+    sax_models_removed
 
 
 @gf.cell
@@ -59,45 +58,7 @@ def _bezier_curve(radius: float = 10, angle: float = 90) -> gf.Component:
 
 
 def get_model(model="fdtd"):
-    if model == "ana":
-        return {"_bezier_curve": get_model_ana}
-    if model == "fdtd":
-        return {"_bezier_curve": get_model_fdtd}
-
-
-def get_model_fdtd(wl=1.55):
-    file_path = get_file_path("FDTD/cband/straight/straight_length10um_width500nm.npz")
-    model_data = model_from_npz(file_path)
-    return model_data(wl=wl)
-
-
-def get_model_ana(wl=1.55):
-    neff = 2.34
-    ng = 3.4
-
-    def os(x):
-        return 0.01 * np.cos(24 * np.pi * x) + 0.01
-
-    # loss=0.0
-    loss = os(wl)
-
-    wl0 = 1.55
-    radius = 10
-    angle = 90
-
-    length = radius * angle * (np.pi / 180)
-
-    dwl = wl - wl0
-    dneff_dwl = (ng - neff) / wl0
-    neff = neff - dwl * dneff_dwl
-    phase = 2 * np.pi * neff * length / wl
-    transmission = 10 ** (-loss * length / 20) * np.exp(1j * phase)
-    sdict = sax.reciprocal(
-        {
-            ("o1", "o2"): transmission,
-        }
-    )
-    return sdict
+    return sax_models_removed("_bezier_curve")
 
 
 # class bezier_curve:
@@ -126,20 +87,6 @@ def get_model_ana(wl=1.55):
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    c = _bezier_curve({"radius": 10, "angle": 90})
+    c = _bezier_curve(radius=10, angle=90)
 
     print(c.get_netlist())
-    print()
-    # sys.exit()
-
-    recnet = sax.RecursiveNetlist.model_validate(c.get_netlist(recursive=True))
-    print("Required Models ==>", sax.get_required_circuit_models(recnet))
-
-    _c, info = sax.circuit(recnet, get_model())
-    print(_c(wl=1.55))
-    print(np.abs(_c(wl=1.35)["o1", "o2"]) ** 2)
-
-    c.plot()
-    plt.show()

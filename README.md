@@ -1,16 +1,16 @@
 
-# PhIDO: AI-Powered Photonic Circuit Designer
+# OptiAi: AI-Powered Photonic Circuit Designer
 
-PhIDO (Photonics Intelligent Design and Optimization) is an intelligent web application that automates the design of photonic integrated circuits using Large Language Models (LLMs). The application provides both automatic guided workflows and step-by-step execution modes for circuit design, from specification to layout generation and Design Rule Checking (DRC).
+OptiAi is an intelligent web application that automates the design of photonic integrated circuits using Large Language Models (LLMs). The application provides both automatic guided workflows and step-by-step execution modes for circuit design, from specification to layout generation and Design Rule Checking (DRC).
 
 
 
-> **📚 Getting Started**: For hands-on tutorials and detailed step-by-step instructions on using PhIDO, see [GETTING_STARTED.md](GETTING_STARTED.md). This comprehensive guide includes practical examples, troubleshooting tips, and detailed explanations of both workflow modes.
+> **📚 Getting Started**: For hands-on tutorials and detailed step-by-step instructions on using OptiAi, see [GETTING_STARTED.md](GETTING_STARTED.md). This comprehensive guide includes practical examples, troubleshooting tips, and detailed explanations of both workflow modes.
 
 ## 🏗️ Project Structure
 
 ```
-PhIDO/
+OptiAi/
 ├── PhotonicsAI/                    # Main application package
 │   ├── Photon/                     # Core application modules
 │   │   ├── webapp.py              # Streamlit web application (main entry point)
@@ -71,7 +71,29 @@ pip install kfactory==0.21.1
 Ignore the pip dependency resolver conflict with gdsfactory 8.8.5.
 
 ### Setup Log Directory
-Create a `log` folder under `PhIDO-Release/PhotonicsAI/`
+Create a `log` folder under `PhotonicsAI/` in the project root.
+
+### MEEP (Standalone) Requirements
+
+OptiAi single-component simulation now supports a project-local MEEP runtime.
+Use the following script to deploy a standalone MEEP environment under this repo:
+
+```bash
+bash scripts/deploy-meep-standalone.sh
+```
+
+This creates:
+
+- `.meep-env/` (project-local Python + meep runtime)
+- `meep_sim/mmi_4x4.py` (MEEP simulation script used by the app)
+
+Verification:
+
+```bash
+./.meep-env/bin/python -c "import meep; print(meep.__version__)"
+```
+
+If your host has no `conda`/`mamba`/`micromamba`, the deploy script clones an existing local MEEP env into `.meep-env` as an isolated copy for this project.
 
 ## ⚙️ Configuration
 
@@ -79,28 +101,33 @@ Create a `.env` file in the project root with your API keys:
 
 ```bash
 
-# Required for 智谱 (Zhipu) models
-# Prefer ZHIPU_API_KEY; ZHIPUAI_API_KEY is also accepted for compatibility
-ZHIPU_API_KEY='your-zhipu-api-key'
-# ZHIPUAI_API_KEY='your-zhipu-api-key'
+# Generic API configuration
+LLM_MODEL='your-model-name'
+LLM_API_KEY='your-api-key'
+LLM_BASE_URL='https://api.openai.com/v1'
+```
+
+Optional MEEP runtime overrides:
+
+```bash
+OPTIAI_MEEP_PYTHON='/absolute/path/to/OptiAi/.meep-env/bin/python'
+OPTIAI_MEEP_SCRIPT='/absolute/path/to/OptiAi/meep_sim/mmi_4x4.py'
+OPTIAI_MEEP_OUTPUT_DIR='/absolute/path/to/OptiAi/build/meep_output_modal'
 ```
 
 ## 🤖You can add Supported LLM Models 
 
-PhIDO supports multiple LLM providers through the `llm_api.py` module, LLM selection is configured at the beginning of `webapp.py` script. The user may run different LLMs at each step of PhIDO, provided that the models' API keys are configured within the environmental variables:
+OptiAi no longer assumes a fixed provider at startup. Enter the model name directly in the sidebar, provide the matching API key, and fill in the OpenAI-compatible API base URL used by your provider:
 
 
-### Zhipu (GLM) Models
-- **glm-4** - Latest GLM-4 text/chat model for general-purpose generation and reasoning `glm-4`
-- **chatglm_turbo** - Faster chat-oriented model with lower latency `chatglm_turbo`
-- **Environment Variable**: `ZHIPU_API_KEY` (compatible with `ZHIPUAI_API_KEY`)
-
-**Note that** `ZHIPU_API_KEY` **must be set in addition to any other model API key because PhIDO uses GLM models for formatting entity extraction results via pydantic.**
-Other provider models not listed here may still work but have not been verified. 
+### LLM Runtime Inputs
+- **Model** - Enter the model name directly in the sidebar at startup
+- **API Key** - Enter the provider API key in the same startup section
+- **API Base URL** - Required; fill in the provider's OpenAI-compatible endpoint base URL
 
 ## 🔄 Workflow Modes
 
-PhIDO provides two distinct workflow modes to accommodate different user preferences and use cases:
+OptiAi provides two distinct workflow modes to accommodate different user preferences and use cases:
 
 ### 1. Automatic Workflow (Guided Mode)
 A fully automated, step-by-step process that guides users through the entire circuit design pipeline.
@@ -144,7 +171,7 @@ Allows users to execute individual workflow steps with custom inputs and manual 
 - **Intelligent Component Matching**: AI-powered selection of photonic components based on specifications
 - **Automatic Routing**: Smart connection generation between components
 - **Layout Generation**: GDS file creation for fabrication
-- **Simulation Integration**: Circuit performance analysis using SAX
+- **Layout Validation**: Layout preview and DRC-focused verification
 - **Template Workflows**: Pre-defined circuit templates with customizable parameters
 
 ### Design Rule Checking (DRC)
@@ -177,7 +204,7 @@ Before starting:
 ```bash
 export PYTHONPATH='.'
 ```
-Set ```./PhIDO-Release``` as a PYTHONPATH environmental variable.
+Set the project root as a PYTHONPATH environment variable.
 
 ### Quick Start
 ```bash
@@ -198,7 +225,7 @@ For detailed tutorials with step-by-step instructions and practical examples, se
 2. **Choose a template** (e.g., "MZI with TiN heaters")
 3. **Customize parameters** (length, width, heater specifications)
 4. **Generate circuit DSL** from template
-5. **Create layout** and run simulations
+5. **Create layout** and inspect validation outputs
 6. **Validate with DRC** for manufacturing readiness
 
 ### Custom Circuit Design
@@ -214,12 +241,12 @@ For detailed tutorials with step-by-step instructions and practical examples, se
 ### Project Structure Details
 
 - **`webapp.py`**: Main Streamlit application with UI components and workflow logic
-- **`llm_api.py`**: LLM integration layer supporting multiple providers and models
+- **`llm_api.py`**: Generic LLM integration layer and workflow prompting
 - **`utils.py`**: Utility functions for circuit processing, DOT graph generation, and data handling
 - **`prompts.yaml`**: Structured prompts for different LLM tasks and workflow steps
 - **`templates.yaml`**: Circuit templates and component configurations
 - **`drc/`**: Design Rule Checking module with KLayout integration
-- **`KnowledgeBase/`**: Photonic component library and simulation data
+- **`KnowledgeBase/`**: Photonic component library and reference layout/model data
 
 ### Adding New Components
 
@@ -227,7 +254,7 @@ To add new photonic components:
 
 1. Create component file in `KnowledgeBase/DesignLibrary/`
 2. Define component geometry and parameters
-3. Add S-parameter models for simulation
+3. Add component metadata or reference model data if needed
 4. Update component templates in `templates.yaml`
 5. Add corresponding prompts in `prompts.yaml`
 
@@ -240,20 +267,20 @@ To add new design rules:
 3. Test with sample layouts
 4. Update DRC reporting in `webapp.py`
 
-### Adding New LLM Models
+### Updating LLM Runtime Settings
 
-To add support for new LLM models:
+To adjust the configured LLM runtime:
 
-1. Add the model configuration in `llm_api.py`
+1. Update the model configuration in `llm_api.py`
 2. Update the model selection in `webapp.py`
-3. Add corresponding environment variables
-4. Test with appropriate prompts
+3. Set `LLM_MODEL`, `LLM_API_KEY`, and `LLM_BASE_URL`
+4. Test the affected workflow steps
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **GDS Layer Number Errors**: PhIDO automatically handles large layer numbers with fallback strategies
+1. **GDS Layer Number Errors**: OptiAi automatically handles large layer numbers with fallback strategies
 2. **DRC Failures**: Check KLayout installation and DRC script configuration
 3. **LLM API Errors**: Verify API keys and model availability
 4. **Component Import Errors**: Ensure all dependencies are installed correctly
@@ -268,7 +295,7 @@ sudo apt-get install -y swig
 ```
 and rerun ```requirements.txt``` pip install.
 
-If you encounter import issues during running of PhIDO:
+If you encounter import issues during running of OptiAi:
 ```bash
 export PYTHONPATH='.'  
 ```
@@ -287,7 +314,7 @@ Ignore the pip dependency resolver conflict with gdsfactory 8.8.5.
 
 ### Log Error
 
-If you encounter a logger error, create a ```log``` folder under ```PhIDO-Release/PhotonicsAI```.
+If you encounter a logger error, create a `log` folder under `PhotonicsAI/` in the project root.
 
 ## 🤝 Contributing
 1. Fork the repository
@@ -300,8 +327,7 @@ If you encounter a logger error, create a ```log``` folder under ```PhIDO-Releas
 ## 🙏 Acknowledgments
 
 - Built with Streamlit for the web interface
-- Powered by various LLM providers 
+- Powered by the user-configured LLM API
 - Uses GDSFactory for photonic layout generation
-- Integrates with SAX for circuit simulations
 - KLayout for Design Rule Checking
 - Template-based workflows for rapid prototyping

@@ -4,7 +4,11 @@ import os
 import re
 import random
 import urllib.parse
+from pathlib import Path
+
+import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -13,9 +17,86 @@ import gdsfactory as gf
 
 # ==================== 配置区域 ====================
 
+REPO_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(REPO_DIR / ".env")
+
 # 目标输出目录 (DesignLibrary)
 # 假设脚本在 scripts/ 目录下，向上两级找到 PhotonicsAI
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "PhotonicsAI", "KnowledgeBase", "DesignLibrary"))
+LLM_REQUEST_TIMEOUT = 120
+
+
+def _get_llm_runtime_config():
+    """Read generic LLM runtime settings for helper calls in this script."""
+    return {
+        "model": os.getenv("LLM_MODEL", "").strip(),
+        "api_key": os.getenv("LLM_API_KEY", "").strip(),
+        "base_url": os.getenv("LLM_BASE_URL", "").strip(),
+    }
+
+
+def _strip_markdown_fences(text):
+    """Remove common markdown fences from LLM output."""
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    return cleaned.replace("```json", "").replace("```", "").strip()
+
+
+def _call_llm_text(prompt, context_label):
+    """Call a generic OpenAI-compatible chat completions endpoint."""
+    runtime = _get_llm_runtime_config()
+    missing_fields = [
+        field_name
+        for field_name, value in runtime.items()
+        if not value
+    ]
+    if missing_fields:
+        print(
+            f"[{context_label}] Missing LLM configuration: {', '.join(missing_fields)}. "
+            "Skipping LLM step."
+        )
+        return None
+
+    endpoint = runtime["base_url"].rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+
+    payload = {
+        "model": runtime["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "top_p": 0.7,
+        "stream": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {runtime['api_key']}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=LLM_REQUEST_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as error:
+        print(f"[{context_label}] LLM request failed: {error}")
+        return None
+    except ValueError as error:
+        print(f"[{context_label}] Failed to parse LLM response JSON: {error}")
+        return None
+
+    choices = data.get("choices", [])
+    if not choices:
+        print(f"[{context_label}] LLM response did not contain choices.")
+        return None
+
+    content = choices[0].get("message", {}).get("content", "")
+    return _strip_markdown_fences(content)
 
 # 关键词配置
 DEVICE_keywords = {
@@ -295,18 +376,10 @@ def init_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def extract_params_with_llm(text, device_type):
-    """(可选) 使用 Zhipu AI (ChatGLM) 提取精准参数
-    需要设置环境变量 ZHIPUAI_API_KEY 或直接在代码中填入
-    """
+    """使用配置好的通用 LLM 提取更精确的器件参数。"""
     try:
-        from zhipuai import ZhipuAI
-        api_key = os.getenv("ZHIPUAI_API_KEY") # 或者填入 "your_zhipuai_api_key"
-        if not api_key:
-            return None
-            
-        client = ZhipuAI(api_key=api_key)
-        
-        prompt = f"""
+        content = _call_llm_text(
+            f"""
         You are an expert in silicon photonics PDK development. 
         Extract key geometry parameters for a "{device_type}" device from the following text.
         
@@ -322,20 +395,12 @@ def extract_params_with_llm(text, device_type):
         
         Text:
         {text[:4000]}
-        """
-        
-        response = client.chat.completions.create(
-            model="glm-4-flash",  # 使用免费的 flash 模型
-            messages=[{"role": "user", "content": prompt}],
+        """,
+            context_label="LLM Extraction",
         )
-        # GLM-4 的返回格式可能包含 markdown 代码块，需要清理
-        content = response.choices[0].message.content
-        content = content.replace("```json", "").replace("```", "").strip()
+        if not content:
+            return None
         return json.loads(content)
-        
-    except ImportError:
-        print("ZhipuAI library not installed. Run `pip install zhipuai`.")
-        return None
     except Exception as e:
         print(f"LLM Extraction failed: {e}")
         return None
@@ -343,7 +408,7 @@ def extract_params_with_llm(text, device_type):
 def extract_params_heuristic(text, device_type):
     """启发式参数提取 (默认回退方案)"""
     
-    # 1. 尝试使用 LLM (如果配置了 API Key)
+    # 1. 尝试使用 LLM (如果配置了完整的 LLM 连接参数)
     llm_params = extract_params_with_llm(text, device_type)
     if llm_params:
         print(f"  [LLM] Successfully extracted params for {device_type}")
@@ -457,14 +522,8 @@ def _generate_search_keywords_with_llm(component_name, device_type=None):
         list[str]: 搜索关键词列表 (5-8个)
     """
     try:
-        from zhipuai import ZhipuAI
-        api_key = os.getenv("ZHIPUAI_API_KEY") or os.getenv("ZHIPU_API_KEY")
-        if not api_key:
-            return None
-
-        client = ZhipuAI(api_key=api_key)
-
-        prompt = f"""You are an expert in silicon photonics and integrated photonics research.
+        content = _call_llm_text(
+            f"""You are an expert in silicon photonics and integrated photonics research.
 
 A user wants to design the following photonic component:
   Component: "{component_name}"
@@ -483,14 +542,12 @@ Requirements:
 
 Return a JSON array of strings ONLY. No markdown, no explanation.
 Example: ["1x2 MMI silicon photonics", "multimode interferometer coupler SOI", ...]
-"""
-
-        response = client.chat.completions.create(
-            model="glm-4-flash",  # 使用免费的 flash 模型
-            messages=[{"role": "user", "content": prompt}],
+""",
+            context_label="LLM Keywords",
         )
-        content = response.choices[0].message.content
-        content = content.replace("```json", "").replace("```", "").strip()
+        if not content:
+            return None
+
         keywords = json.loads(content)
         
         if isinstance(keywords, list) and len(keywords) > 0:
@@ -538,20 +595,16 @@ def _aggregate_params_with_llm(papers, device_type):
     
     策略：
     - 每篇论文提供全文（或尽可能多的文本），而非仅摘要
-    - GLM-4 支持 128K context，可以容纳大量文本
+    - 使用已配置的大上下文模型时，可容纳更多全文内容
     - 优先使用 full_text 字段（全文），降级到 abstract
     """
     try:
-        from zhipuai import ZhipuAI
-        api_key = os.getenv("ZHIPUAI_API_KEY") or os.getenv("ZHIPU_API_KEY")
-        if not api_key:
-            print("[WARN] No Zhipu API key found, falling back to heuristic defaults.")
+        runtime = _get_llm_runtime_config()
+        if not all(runtime.values()):
+            print("[WARN] Missing LLM_MODEL / LLM_API_KEY / LLM_BASE_URL, falling back to heuristic defaults.")
             return None
 
-        client = ZhipuAI(api_key=api_key)
-
         # 拼接所有论文的全文内容
-        # GLM-4 支持 128K tokens，我们可以放入更多文本
         MAX_TOTAL_CHARS = 100000  # ~25K tokens, 留余量给 prompt 和输出
         MAX_PER_PAPER = MAX_TOTAL_CHARS // max(len(papers), 1)  # 均分给每篇论文
         
@@ -646,12 +699,9 @@ Also include a key "confidence_note" (string) briefly explaining:
 Do NOT include markdown formatting. Output pure JSON only.
 """
 
-        response = client.chat.completions.create(
-            model="glm-4-flash",  # 使用免费的 flash 模型
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content = response.choices[0].message.content
-        content = content.replace("```json", "").replace("```", "").strip()
+        content = _call_llm_text(prompt, context_label="LLM Aggregate")
+        if not content:
+            return None, ""
         result = json.loads(content)
         
         # 移除非参数字段，保留 confidence_note 用于 docstring
@@ -695,13 +745,10 @@ def _rank_papers_with_llm(papers, device_type, top_n=8):
         return papers
     
     try:
-        from zhipuai import ZhipuAI
-        api_key = os.getenv("ZHIPUAI_API_KEY") or os.getenv("ZHIPU_API_KEY")
-        if not api_key:
+        runtime = _get_llm_runtime_config()
+        if not all(runtime.values()):
             # 无 API Key，按搜索顺序返回
             return papers[:top_n]
-
-        client = ZhipuAI(api_key=api_key)
 
         # 构造论文摘要列表 (只发送标题+摘要+来源用于评判，不发全文以节省 token)
         papers_summary = ""
@@ -762,12 +809,9 @@ Return a JSON array where each element has:
 Sort by score descending. Output pure JSON only, no markdown.
 """
 
-        response = client.chat.completions.create(
-            model="glm-4-flash",  # 使用免费的 flash 模型
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content = response.choices[0].message.content
-        content = content.replace("```json", "").replace("```", "").strip()
+        content = _call_llm_text(prompt, context_label="Paper Ranking")
+        if not content:
+            return papers[:top_n]
         rankings = json.loads(content)
 
         # 将评分映射回论文列表

@@ -1,4 +1,4 @@
-# PhIDO 完整工作流程详细说明
+# OptiAi 完整工作流程详细说明
 
 > 基于所有流程相关问题的完整梳理 - 精确到函数级别
 
@@ -29,17 +29,14 @@
 | | `utils.get_graphviz_placements()` | scaled DOT | node coordinates | ❌ Graphviz | utils.py:277-302 |
 | | `utils.add_placements_to_dsl()` | coordinates | DSL with placements | ❌ 合并数据 | utils.py |
 | | `utils.add_final_ports()` | DSL | DSL with final ports | ❌ 端口定义 | utils.py |
-| **Phase 5<br/>版图与仿真** | `utils.dsl_to_gf()` | `p300_circuit_dsl` | `p400_gf_netlist` | ❌ 参数过滤 | utils.py:139-198 |
+| **Phase 5<br/>版图与校验** | `utils.dsl_to_gf()` | `p300_circuit_dsl` | `p400_gf_netlist` | ❌ 参数过滤 | utils.py:139-198 |
 | | `yaml_netlist_to_gds()` | gf_netlist | GDS Component `c` | ❌ GDSFactory | DemoPDK.py:118-210 |
 | | `c.get_netlist(recursive=True)` | Component | recursive netlist | ❌ 递归展开 | GDSFactory |
-| | `sax.circuit()` | netlist + models | SAX model function | ❌ 电路组装 | SAX |
 | | `c.plot()` | Component | Matplotlib Figure | ❌ 可视化 | GDSFactory |
-| **5A SAX仿真** | `session.p400_sax_circuit(wl)` | wavelength array | S-parameters dict | ❌ 预计算插值 | SAX runtime |
-| | `utils.plot_dict_arrays()` | wl + S-params | plot_sax.png | ❌ Matplotlib | utils.py:606-654 |
-| **5B GDS显示** | `st.pyplot()` | gdsfig | UI显示 | ❌ Streamlit | webapp.py:2752-2753 |
-| **5C DRC检查** | `c.write_gds()` | Component | placeholder.gds | ❌ GDS2格式 | GDSFactory |
+| **5A GDS显示** | `st.pyplot()` | gdsfig | UI显示 | ❌ Streamlit | webapp.py:2752-2753 |
+| **5B DRC检查** | `c.write_gds()` | Component | placeholder.gds | ❌ GDS2格式 | GDSFactory |
 | | `run_drc()` | gds_file_path | report.lydrb | ❌ KLayout批处理 | drc.py:11-64 |
-| **5D 优化(禁用)** | `circuit_optimizer()` | circuit_dsl | optimized netlist | ❌ 当前=0 | webapp.py:2898 |
+| **5C 优化(禁用)** | `circuit_optimizer()` | circuit_dsl | optimized netlist | ❌ 当前=0 | webapp.py:2898 |
 
 ---
 
@@ -184,8 +181,8 @@ ports:
 | **Phase 3-模板** | parse_user_specs (验证) | UI手动输入specs |
 | **Phase 4-组件** | apply_settings, dot_add_edges, errorfunc | circuit_to_dot, dot_planarity |
 | **Phase 4-模板** | dot_add_edges_templates, errorfunc | 同左 |
-| **Phase 5** | **无AI** | GDSFactory, SAX, KLayout |
-| **Phase 5-Tidy3D** | **无AI** (完整分支需GDS) | Tidy3D FDTD |
+| **Phase 5** | **无AI** | GDSFactory, KLayout |
+| **Phase 5-MEEP** | **无AI** (完整分支需GDS) | MEEP 日志 / FDTD 交接 |
 
 ---
 
@@ -206,7 +203,6 @@ ports:
 | `p300_circuit_dsl` | dict | 电路DSL | webapp.py:2467-2650 |
 | `p300_dot_string` | str | DOT图定义 | webapp.py:2488-2672 |
 | `p400_gf_netlist` | dict | GDSFactory netlist | webapp.py:2728 |
-| `p400_sax_circuit` | function | SAX仿真函数 | DemoPDK.py:186-191 |
 | `p400_gdsfig` | Figure | GDS可视化图 | DemoPDK.py:201-202 |
 
 ---
@@ -222,7 +218,7 @@ def _allowed_settings_for(component_name: str) -> set:
 
 ### 2. 并行路径执行 (Phase 5)
 ```python
-# SAX仿真、GDS显示、DRC检查可独立执行
+# GDS显示与DRC检查可独立执行
 # webapp.py:2740-2839
 ```
 
@@ -243,8 +239,7 @@ def _allowed_settings_for(component_name: str) -> set:
 | 模板specs验证失败 | Phase 3B | 返回Error，重新输入 |
 | DOT交叉边 | Phase 4 | 迭代修复4次，失败则保留 |
 | GDS路由失败 | Phase 5 | ignore_links重试 |
-| GDS大层号 | Phase 5C | flatten → 修改参数 → 跳过DRC |
-| SAX端口不足 | Phase 5A | 使用dummy circuit |
+| GDS大层号 | Phase 5B | flatten → 修改参数 → 跳过DRC |
 
 ---
 
@@ -252,12 +247,11 @@ def _allowed_settings_for(component_name: str) -> set:
 
 | **工具** | **用途** | **阶段** | **必需性** |
 |---------|---------|---------|-----------|
-| **OpenAI/Claude等LLM** | 实体抽取、边生成 | Phase 0-4 | ✅ 必需 |
+| **LLM API** | 实体抽取、边生成 | Phase 0-4 | ✅ 必需 |
 | **GDSFactory** | GDS生成、可视化 | Phase 5 | ✅ 必需 |
-| **SAX** | 电路仿真 | Phase 5A | ✅ 必需 |
-| **KLayout** | DRC检查 | Phase 5C | ⚠️ 推荐 |
+| **KLayout** | DRC检查 | Phase 5B | ⚠️ 推荐 |
 | **Graphviz** | 布局计算 | Phase 4 | ✅ 必需 |
-| **Tidy3D** | FDTD仿真 | Phase 5D | ❌ 可选 |
+| **MEEP** | FDTD仿真 | Phase 5D | ❌ 可选 |
 
 ---
 
@@ -303,5 +297,5 @@ PhotonicsAI/Photon/
 ---
 
 **生成时间**: 2026-02-12  
-**基准版本**: PhIDO main branch  
+**基准版本**: OptiAi main branch  
 **覆盖所有流程相关问题**: ✅ 完整

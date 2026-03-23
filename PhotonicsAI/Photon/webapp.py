@@ -1,6 +1,6 @@
 # ruff: noqa
 """
-Phido - PHotonic Intelligent Design & Optimization
+OptiAi - PIC Design Automation
 
 A Streamlit web application for automated photonic circuit design using AI.
 Supports both automatic workflow (guided) and step-by-step execution modes.
@@ -18,16 +18,30 @@ Each workflow consists of 4 main phases:
 
 # Standard library imports
 import copy
+from importlib import util as importlib_util
+import json
 import pickle
 import random
+import re
+import subprocess
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 import os
 
 # Load environment variables from .env file
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent.parent.parent / ".env")
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
+from PhotonicsAI.runtime_env import configure_ca_certificates
+
+configure_ca_certificates()
 
 # Third-party imports
 import numpy as np
@@ -46,61 +60,137 @@ from PhotonicsAI.Photon.drc.drc import run_drc
 # CONFIGURATION
 # =============================================================================
 
-# Available LLM models
-LLM_MODELS = {
-    "阿里云百炼": [
-        "glm-4.7",           # GLM-4.7 (推荐)
-        "qwen-plus",         # Qwen Plus
-        "qwen-turbo",        # Qwen Turbo (快速)
-        "qwen-max",          # Qwen Max (最强)
-        "qwen-long",         # Qwen Long (长上下文)
-    ],
-    "智谱 AI 模型": [
-        "glm-4",             # GLM-4 最新版
-        "glm-4-flash",       # GLM-4 Flash (免费)
-        "chatglm_turbo",     # ChatGLM Turbo（更快）
-        "chatglm_pro",       # ChatGLM Pro
-        "chatglm_std",       # ChatGLM 标准版
-    ],
-    "OpenAI 模型": [
-        "gpt-4o",           # GPT-4
-        "o1",               # 推理优化版
-        "o3-mini",          # 快速版
-    ],
-    "Anthropic 模型": [
-        "claude-3-7-sonnet-20250219",  # Claude Sonnet
-        "claude-opus-4-20250514",      # Claude Opus 4.0
-    ],
-    "Google 模型": [
-        "gemini-2.5-pro",               # Gemini Pro 2.5
-        "gemini-1.5-pro",               # Gemini Pro 1.5
-        "gemini-1.5-flash",             # Gemini Flash（快速）
-        "gemini-2.0-flash",             # Gemini Flash 2.0
-    ],
-}
+DEFAULT_LLM_MODEL = "glm-4-flash"
+API_PROMPT_PLACEHOLDER = (
+    "⇨ First run: paste API config, e.g. "
+    "api_key=YOUR_KEY base_url=https://api.openai.com/v1 model=glm-4-flash"
+)
+NORMAL_PROMPT_PLACEHOLDER = "⇨ Describe a photonic circuit and hit Enter!"
 
-# LLM model configurations for different workflow steps
-# 从侧边栏选择的模型
-def get_selected_model():
-    # 创建扁平的模型列表用于选择
-    all_models = []
-    for category, models in LLM_MODELS.items():
-        all_models.extend([f"{model} ({category.split()[0]})" for model in models])
-    
-    # 在侧边栏添加模型选择器
+def normalize_model_name(model_name: str) -> str:
+    """Normalize a user-provided model name."""
+    cleaned = (model_name or "").strip()
+    return cleaned or DEFAULT_LLM_MODEL
+
+
+def is_llm_config_complete(api_key: str, base_url: str) -> bool:
+    """Return True if required runtime LLM fields are present."""
+    return bool((api_key or "").strip()) and bool((base_url or "").strip())
+
+
+def _clean_prompt_value(value: str) -> str:
+    """Trim wrappers around a parsed prompt value."""
+    return str(value or "").strip().strip('"').strip("'").strip("`")
+
+
+def parse_llm_config_from_prompt(user_text: str) -> dict:
+    """Parse model/api_key/base_url from a free-form prompt string."""
+    text = (user_text or "").strip()
+    if not text:
+        return {}
+
+    parsed: dict = {}
+
+    try:
+        loaded = yaml.safe_load(text)
+        if isinstance(loaded, dict):
+            normalized = {
+                str(k).strip().lower().replace("-", "_"): str(v)
+                for k, v in loaded.items()
+                if v is not None
+            }
+            alias_map = {
+                "api_key": ["api_key", "apikey", "llm_api_key", "key", "token"],
+                "base_url": ["base_url", "api_base_url", "llm_base_url", "url"],
+                "model": ["model", "llm_model"],
+            }
+            for target_key, aliases in alias_map.items():
+                for alias in aliases:
+                    if alias in normalized and normalized[alias].strip():
+                        parsed[target_key] = _clean_prompt_value(normalized[alias])
+                        break
+    except Exception:
+        pass
+
+    regex_patterns = {
+        "api_key": [
+            r"(?:llm_api_key|api[_ -]?key|apikey|token)\s*[:=]\s*([^\s,;]+)",
+        ],
+        "base_url": [
+            r"(?:llm_base_url|api[_ -]?base[_ -]?url|base[_ -]?url|url)\s*[:=]\s*(https?://[^\s,;]+)",
+        ],
+        "model": [
+            r"(?:llm_model|model)\s*[:=]\s*([^\n,;]+)",
+        ],
+    }
+
+    for target_key, patterns in regex_patterns.items():
+        if parsed.get(target_key):
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                parsed[target_key] = _clean_prompt_value(match.group(1))
+                break
+
+    return parsed
+
+
+def queue_llm_widget_sync(model: str = "", api_key: str = "", base_url: str = ""):
+    """Queue sidebar widget values to be applied before the next render."""
+    session.pending_llm_widget_sync = {
+        "selected_model_input": normalize_model_name(model),
+        "llm_api_key_input": api_key or "",
+        "llm_base_url_input": base_url or "",
+    }
+
+
+def apply_pending_llm_widget_sync():
+    """Apply queued sidebar widget values before widgets are instantiated."""
+    pending = session.pop("pending_llm_widget_sync", None)
+    if not pending:
+        return
+
+    for key, value in pending.items():
+        session[key] = value
+
+
+def render_llm_config_inputs(current_model: str, current_api_key: str, current_base_url: str):
+    """Render the sidebar inputs for model name, API key, and required base URL."""
+    normalized_model = normalize_model_name(current_model)
+
+    if "selected_model_input" not in session:
+        session.selected_model_input = normalized_model
+    if "llm_api_key_input" not in session:
+        session.llm_api_key_input = current_api_key or ""
+    if "llm_base_url_input" not in session:
+        session.llm_base_url_input = current_base_url or ""
+
     with st.sidebar:
-        st.markdown("## 🤖 LLM 模型选择")
-        selected = st.selectbox(
-            "选择要使用的 AI 模型",
-            all_models,
-            index=all_models.index("glm-4.7 (阿里云)") if "glm-4.7 (阿里云)" in all_models else 0,
-            help="选择用于所有步骤的 LLM 模型。不同模型可能需要不同的 API Key，请确保已在 .env 中配置。"
+        st.markdown("## 🤖 LLM API 配置")
+        selected_model = st.text_input(
+            "模型 model",
+            key="selected_model_input",
+            help="输入要调用的模型名。调用会通过下方填写的 OpenAI 兼容 API Base URL 发出。",
         )
-        # 从选择中提取实际的模型名（去掉分类标识）
-        return selected.split(" (")[0]
+        api_key = st.text_input(
+            "API Key",
+            type="password",
+            key="llm_api_key_input",
+            help="在这里输入当前会话使用的 API Key。",
+        )
+        base_url = st.text_input(
+            "API Base URL",
+            key="llm_base_url_input",
+            help="必填。请填写 OpenAI 兼容接口地址，例如 https://api.openai.com/v1 或其他兼容地址。",
+        )
+        if not base_url.strip():
+            st.sidebar.warning("请填写 API Base URL，未填写时不会发起模型调用。")
+
+        return normalize_model_name(selected_model), api_key.strip(), base_url.strip()
 
 # 所有步骤默认使用相同的模型
-selected_model = "glm-4.7"  # 默认值，会被 get_selected_model() 更新
+selected_model = DEFAULT_LLM_MODEL  # 默认值，会被侧边栏更新
 entity_extraction_model = selected_model
 component_selection_model = selected_model
 component_specification_model = selected_model
@@ -169,6 +259,62 @@ def convert_tuples_to_lists(obj):
         return [convert_tuples_to_lists(item) for item in obj]
     else:
         return obj
+
+
+class LocalSearchResult:
+    """Lightweight search result compatible with llm_search result usage."""
+
+    def __init__(self, match_list, match_scores):
+        self.match_list = match_list
+        self.match_scores = match_scores
+
+
+def quick_component_candidates(component_query, component_names, max_results=5):
+    """Fast local ranking for component candidates to avoid slow LLM-only lookup."""
+    query = (component_query or "").strip().lower()
+    if not query:
+        return []
+
+    tokens = [tok for tok in re.split(r"[^a-z0-9]+", query) if tok]
+    scored = []
+
+    for idx, name in enumerate(component_names):
+        name_l = name.lower()
+        score = 0
+        if name_l == query:
+            score += 100
+        if name_l.startswith(query):
+            score += 60
+        if query in name_l:
+            score += 40
+        for tok in tokens:
+            if tok in name_l:
+                score += 8
+        if score > 0:
+            scored.append((score, idx))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [idx for _, idx in scored[:max_results]]
+
+
+def build_local_search_result(component_query, component_names):
+    """Build a LocalSearchResult with coarse confidence labels."""
+    candidates = quick_component_candidates(component_query, component_names)
+    if not candidates:
+        return LocalSearchResult([], [])
+
+    query = (component_query or "").strip().lower()
+    scores = []
+    for idx in candidates:
+        name_l = component_names[idx].lower()
+        if name_l == query:
+            scores.append("exact")
+        elif query and query in name_l:
+            scores.append("partial")
+        else:
+            scores.append("poor")
+
+    return LocalSearchResult(candidates, scores)
 
 # Step-by-Step Execution Functions
 # These functions handle the step-by-step execution mode where users can
@@ -712,33 +858,29 @@ def run_step_by_step_layout_simulation(custom_circuit_dsl_yaml):
         
         st.pyplot(session["p400_gdsfig"])
         
-        with st.spinner("Simulating s-parameters ..."):
-            wl = np.linspace(1.5, 1.6, 200)
-            result = session["p400_sax_circuit"](wl=wl)
-            p400_sax_fig = utils.plot_dict_arrays(wl, result)
-        st.image(str(PATH.build / "plot_sax.png"))
+        st.info("SAX 仿真功能已移除，当前阶段仅生成版图并执行 DRC。")
 
-        # Show Tidy3D integration logs (if any) for this run
+        # Show MEEP integration logs (if any) for this run
         try:
-            tlog = PATH.build / "tidy3d.log"
-            tcfg = PATH.build / "tidy3d_config.json"
+            tlog = PATH.build / "meep.log"
+            tcfg = PATH.build / "meep_config.json"
             sim_pngs = [
-                PATH.build / "tidy3d_sim_z0.png",
-                PATH.build / "tidy3d_sim_x0.png",
-                PATH.build / "tidy3d_sim_y0.png",
+                PATH.build / "meep_sim_z0.png",
+                PATH.build / "meep_sim_x0.png",
+                PATH.build / "meep_sim_y0.png",
             ]
             if tlog.exists() or tcfg.exists() or any(p.exists() for p in sim_pngs):
-                with st.expander("Tidy3D 集成日志、配置与结构图", expanded=False):
+                with st.expander("MEEP 集成日志、配置与结构图", expanded=False):
                     # 配置
                     if tcfg.exists():
-                        st.caption("配置 (build/tidy3d_config.json)")
+                        st.caption("配置 (build/meep_config.json)")
                         try:
                             st.code((tcfg.read_text(encoding="utf-8")), language="json")
                         except Exception:
                             st.write(str(tcfg))
                     # 日志
                     if tlog.exists():
-                        st.caption("日志 (build/tidy3d.log)")
+                        st.caption("日志 (build/meep.log)")
                         try:
                             lines = tlog.read_text(encoding="utf-8").splitlines()[-120:]
                             st.code("\n".join(lines), language="text")
@@ -828,13 +970,6 @@ def run_step_by_step_layout_simulation(custom_circuit_dsl_yaml):
         
         # Circuit optimizer (if applicable)
         optimize_flag = False
-        if "properties" in session["p300_circuit_dsl"]:
-            if "optimizer" in session["p300_circuit_dsl"]["properties"]:
-                if "error_fn" in session["p300_circuit_dsl"]["properties"]["optimizer"]:
-                    if "free_params" in session["p300_circuit_dsl"]["properties"]["optimizer"]:
-                        if "sparam" in session["p300_circuit_dsl"]["properties"]["optimizer"]:
-                            if routing_flag:
-                                optimize_flag = True
         
         if optimize_flag:
             with st.spinner("Optimizing circuit..."):
@@ -850,15 +985,13 @@ def run_step_by_step_layout_simulation(custom_circuit_dsl_yaml):
                 c, d = yaml_netlist_to_gds(session, ignore_links=True)
                 st.markdown(":red[Routing error.]")
             
-            wl = np.linspace(1.53, 1.57, 500)
-            result = session["p400_sax_circuit"](wl=wl)
-            p400_sax_fig = utils.plot_dict_arrays(wl, result)
-            st.image(str(PATH.build / "plot_sax.png"))
+            st.info("SAX 仿真与基于 s-parameter 的优化已移除，保留优化前版图结果。")
         
         result = {
             "gf_netlist": session["p400_gf_netlist"],
             "routing_success": routing_flag,
-            "optimized": optimize_flag
+            "optimized": optimize_flag,
+            "simulation_removed": True,
         }
         session.step_results["layout_simulation"] = result
         
@@ -1072,28 +1205,19 @@ session = st.session_state
 
 # 在session中存储并更新模型选择
 if 'selected_model' not in session:
-    session.selected_model = "glm-4.7"
-if 'model_initialized' not in session:
-    session.model_initialized = False
+    session.selected_model = normalize_model_name(os.getenv("LLM_MODEL") or DEFAULT_LLM_MODEL)
+if 'llm_api_key' not in session:
+    session.llm_api_key = os.getenv("LLM_API_KEY") or ""
+if 'llm_base_url' not in session:
+    session.llm_base_url = os.getenv("LLM_BASE_URL") or ""
 
-# 更新模型选择（仅在未初始化时或通过UI更改时更新）
-if not session.model_initialized:
-    all_models = []
-    for category, models in LLM_MODELS.items():
-        all_models.extend([f"{model} ({category.split()[0]})" for model in models])
-    
-    # 在侧边栏添加模型选择器
-    with st.sidebar:
-        st.markdown("## 🤖 LLM 模型选择")
-        selected = st.selectbox(
-            "选择要使用的 AI 模型",
-            all_models,
-            index=all_models.index("glm-4.7 (阿里云)") if "glm-4.7 (阿里云)" in all_models else 0,
-            help="选择用于所有步骤的 LLM 模型。不同模型可能需要不同的 API Key，请确保已在 .env 中配置。"
-        )
-        # 从选择中提取实际的模型名（去掉分类标识）
-        session.selected_model = selected.split(" (")[0]
-        session.model_initialized = True
+apply_pending_llm_widget_sync()
+
+session.selected_model, session.llm_api_key, session.llm_base_url = render_llm_config_inputs(
+    session.selected_model,
+    session.llm_api_key,
+    session.llm_base_url,
+)
 
 # 更新所有步骤使用的模型
 selected_model = session.selected_model
@@ -1136,6 +1260,10 @@ if "component_search_complete" not in session:
     session.component_search_complete = False
 if "schematic_complete" not in session:
     session.schematic_complete = False
+if "single_component_mode" not in session:
+    session.single_component_mode = False
+if "design_mode_decision" not in session:
+    session.design_mode_decision = None
 # Step-by-step workflow state variables
 # Tracks the current step and results for step-by-step workflow mode
 if "step_by_step_mode" not in session:
@@ -1153,36 +1281,100 @@ if "custom_inputs" not in session:
     }
 if "step_results" not in session:
     session.step_results = {}
+if "api_prompt_notice" not in session:
+    session.api_prompt_notice = ""
+if "api_prompt_notice_level" not in session:
+    session.api_prompt_notice_level = "info"
+if "pending_llm_widget_sync" not in session:
+    session.pending_llm_widget_sync = None
 
 # LLM API configuration
 if "p100_llm_api_selection" not in session:
-    session.p100_llm_api_selection = "nvidia/nemotron-4-340b-instruct"
+    session.p100_llm_api_selection = session.selected_model
 
 # Function to handle input submission and state changes
-def check_input_change():
-    """
-    Handle input changes and update session state accordingly.
-    
-    This function monitors changes in the chat input and updates the session
-    state to trigger appropriate workflow transitions.
-    """
-    if hasattr(session, 'chat_input') and hasattr(session, 'last_input') and session.chat_input != session.last_input:
-        if session.chat_input.strip():  # Check if input is not just whitespace
-            session.current_message = session.chat_input
+def submit_chat_input(force=False):
+    """Submit current prompt box content, optionally bypassing change detection."""
+    if not hasattr(session, 'chat_input'):
+        return
+
+    if not force and hasattr(session, 'last_input') and session.chat_input == session.last_input:
+        return
+
+    if session.chat_input.strip():
+        prompt_text = session.chat_input.strip()
+
+        # First-run UX: if API is missing, parse API config from the same prompt box.
+        if not is_llm_config_complete(session.llm_api_key, session.llm_base_url):
+            parsed = parse_llm_config_from_prompt(prompt_text)
+
+            if parsed.get("api_key"):
+                session.llm_api_key = parsed["api_key"]
+            if parsed.get("base_url"):
+                session.llm_base_url = parsed["base_url"]
+            if parsed.get("model"):
+                session.selected_model = normalize_model_name(parsed["model"])
+
+            if parsed:
+                queue_llm_widget_sync(
+                    model=session.selected_model,
+                    api_key=session.llm_api_key,
+                    base_url=session.llm_base_url,
+                )
+
+            if is_llm_config_complete(session.llm_api_key, session.llm_base_url):
+                session.api_prompt_notice_level = "success"
+                session.api_prompt_notice = "API 配置已保存。现在可以输入你的 PIC 设计需求。"
+            else:
+                missing_fields = []
+                if not (session.llm_api_key or "").strip():
+                    missing_fields.append("API Key")
+                if not (session.llm_base_url or "").strip():
+                    missing_fields.append("API Base URL")
+                session.api_prompt_notice_level = "warning"
+                session.api_prompt_notice = (
+                    "首次运行需要先配置 API。请在输入框中提供 "
+                    f"{', '.join(missing_fields)}，例如："
+                    "api_key=... base_url=https://... model=..."
+                )
+
+            session.current_message = ""
             session.show_examples = False
-            # Start timing when user enters a prompt
-            session.p100_start_time = time.time()
-            # Reset token usage when user enters a new prompt
-            llm_api.reset_token_usage()
-            # session.input_submitted = True
-        session.last_input = session.chat_input
+            session.chat_input = ""
+            session.last_input = ""
+            return
+
+        session.current_message = prompt_text
+        session.show_examples = False
+        session.api_prompt_notice = ""
+        session.p100_start_time = time.time()
+        llm_api.reset_token_usage()
+
+    session.last_input = session.chat_input
+
+
+def check_input_change():
+    """Handle input change callback from the prompt box."""
+    submit_chat_input(force=False)
 
 
 # Display processed text
 # st.markdown("#### Photon Fury ⚡")
 # st.markdown("A Furious Photonic Chip Engineer")
-st.markdown("#### Phido ⚡")
-st.markdown("PHotonic Intelligent Design & Optimization")
+st.markdown(
+    """
+    <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0ea5e9,#22c55e);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(14,165,233,0.35);">
+            <div style="width:16px;height:16px;border:2px solid #ffffff;border-radius:4px;transform:rotate(45deg);"></div>
+        </div>
+        <div style="font-size:1.5rem;font-weight:700;letter-spacing:0.2px;">OptiAi</div>
+    </div>
+    <div style="margin-top:4px;color:rgba(49,51,63,0.85);font-size:1rem;">
+        PIC Design Automation
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Add workflow mode selection
 # Users can choose between automatic (guided) and step-by-step workflows
@@ -1207,16 +1399,34 @@ with col2:
 
 # Move the text input for chat input to the main page
 # This handles user input for circuit descriptions
-if not session.input_submitted:
-    # st.markdown('⇨ Describe a photonic circuit:')
-    chat_input = st.text_input(
-        "You: ",
-        placeholder="⇨ Describe a photonic circuit and hit Enter!",
-        key="chat_input",
-        on_change=check_input_change,
-        label_visibility="collapsed",
+missing_llm_config = not is_llm_config_complete(session.llm_api_key, session.llm_base_url)
+
+if missing_llm_config:
+    st.info(
+        "首次运行检测到未配置 API。请在下方输入框粘贴 API 信息，"
+        "格式示例：api_key=... base_url=https://... model=..."
     )
-    session.input_submitted = True
+
+if session.api_prompt_notice:
+    if session.api_prompt_notice_level == "success":
+        st.success(session.api_prompt_notice)
+    elif session.api_prompt_notice_level == "warning":
+        st.warning(session.api_prompt_notice)
+    else:
+        st.info(session.api_prompt_notice)
+
+# st.markdown('⇨ Describe a photonic circuit:')
+chat_input = st.text_input(
+    "You: ",
+    placeholder=API_PROMPT_PLACEHOLDER if missing_llm_config else NORMAL_PROMPT_PLACEHOLDER,
+    key="chat_input",
+    on_change=check_input_change,
+    label_visibility="collapsed",
+)
+
+if st.button("Apply", key="apply_prompt_input"):
+    submit_chat_input(force=True)
+    st.rerun()
 
 
 # Function to handle button clicks for example prompts
@@ -1227,6 +1437,13 @@ def on_button_click(button_text):
     Args:
         button_text: The text of the clicked example button
     """
+    if not is_llm_config_complete(session.llm_api_key, session.llm_base_url):
+        session.api_prompt_notice_level = "warning"
+        session.api_prompt_notice = "请先在输入框中完成 API 配置，再使用示例 Prompt。"
+        session.show_examples = False
+        st.rerun()
+        return
+
     session.current_message = button_text
     session.show_examples = False
     session.input_submitted = True
@@ -1290,7 +1507,11 @@ custom_css = """
 
 # Example buttons in a container
 # Display example prompts when enabled to help users get started
-if hasattr(session, 'show_examples') and session.show_examples:
+if (
+    hasattr(session, 'show_examples')
+    and session.show_examples
+    and is_llm_config_complete(session.llm_api_key, session.llm_base_url)
+):
     # Add vertical space and center the container
     st.markdown(
         """
@@ -1386,6 +1607,110 @@ def logger():
 
     with open(session.log_filename, "wb") as file:
         pickle.dump(session_data, file)
+
+
+def publish_optimized_component_to_library(source_template_path, component_hint, meep_output_dir):
+    """Publish an optimized single-component template into DesignLibrary.
+
+    Returns:
+        tuple[str|None, str]: (published_file_path, message)
+    """
+    try:
+        library_dir = PATH.repo / "PhotonicsAI" / "KnowledgeBase" / "DesignLibrary"
+        library_dir.mkdir(parents=True, exist_ok=True)
+
+        source_path = Path(source_template_path)
+        if not source_path.exists():
+            return None, f"Source template not found: {source_path}"
+
+        source_code = source_path.read_text(encoding="utf-8")
+
+        # 1) Functional check: verify the template can be imported and at least one component can be instantiated.
+        module_name = f"optiai_tmp_publish_{int(time.time() * 1000)}"
+        spec = importlib_util.spec_from_file_location(module_name, str(source_path))
+        if spec is None or spec.loader is None:
+            return None, "Functional check failed: unable to create module spec."
+
+        try:
+            mod = importlib_util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as exc:
+            return None, f"Functional check failed during import: {exc}"
+
+        candidate_func = None
+        for attr_name in dir(mod):
+            if attr_name.startswith("_"):
+                continue
+            attr = getattr(mod, attr_name)
+            if callable(attr):
+                candidate_func = attr
+                break
+
+        if candidate_func is None:
+            return None, "Functional check failed: no callable component factory found."
+
+        try:
+            # Minimal smoke call: most auto-generated cells have defaults and should build directly.
+            candidate_component = candidate_func()
+            if candidate_component is None:
+                return None, "Functional check failed: component factory returned None."
+        except Exception as exc:
+            details = traceback.format_exc(limit=1)
+            return None, f"Functional check failed during component build: {exc} ({details.strip()})"
+
+        # 2) Duplicate check: avoid publishing identical content or repeated source-template publications.
+        for existing in library_dir.glob("*.py"):
+            try:
+                existing_text = existing.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            if existing_text == source_code or existing_text.endswith(source_code):
+                return str(existing), f"Duplicate detected: same component content already exists as {existing.name}."
+
+            source_marker = f"Source template: {source_path.name}"
+            if source_marker in existing_text:
+                return str(existing), f"Duplicate detected: this optimized source was already published as {existing.name}."
+
+        hint = re.sub(r"[^a-zA-Z0-9]+", "_", str(component_hint or "").lower()).strip("_")
+        if not hint:
+            hint = re.sub(r"[^a-zA-Z0-9]+", "_", source_path.stem.lower()).strip("_") or "component"
+
+        base_name = f"auto_{hint}_optimized"
+        target_path = library_dir / f"{base_name}.py"
+        version = 2
+        while target_path.exists():
+            target_path = library_dir / f"{base_name}_v{version}.py"
+            version += 1
+
+        summary_parts = []
+        summary_file = Path(meep_output_dir) / "mmi4x4_port1_summary.json"
+        if summary_file.exists():
+            try:
+                data = json.loads(summary_file.read_text(encoding="utf-8"))
+                score = data.get("score")
+                transmission = data.get("guided_total_transmission")
+                if score is not None:
+                    summary_parts.append(f"score={score}")
+                if transmission is not None:
+                    summary_parts.append(f"guided_total_transmission={transmission}")
+            except Exception:
+                pass
+
+        summary_line = ", ".join(summary_parts) if summary_parts else "no metric summary found"
+        header = (
+            '"""Auto-published optimized component.\\n'
+            f"Source template: {source_path.name}\\n"
+            f"Published at: {datetime.now().isoformat(timespec='seconds')}\\n"
+            f"MEEP output: {Path(meep_output_dir)}\\n"
+            f"Optimization summary: {summary_line}\\n"
+            '"""\\n\\n'
+        )
+
+        target_path.write_text(header + source_code, encoding="utf-8")
+        return str(target_path), "Published optimized component into DesignLibrary."
+    except Exception as exc:
+        return None, f"Failed to publish optimized component: {exc}"
 
 
 def on_template_select(template_id):
@@ -2018,12 +2343,7 @@ edges:
             except:
                 st.warning("GDS figure not available")
             
-            # Try to display simulation results if available
-            try:
-                if "plot_sax.png" in str(PATH.build):
-                    st.image(str(PATH.build / "plot_sax.png"))
-            except:
-                st.warning("Simulation plot not available")
+            st.info("本阶段仅展示 GDS 与 DRC 结果。")
             
             with st.expander("GDS-Factory Netlist", expanded=False):
                 st.write("```yaml\n" + yaml.dump(result["gf_netlist"]))
@@ -2121,7 +2441,12 @@ edges:
         st.rerun()
 
 # Original automatic workflow (existing code)
-elif not session.step_by_step_mode and session.p100 and (session.current_message != ""):
+elif (
+    not session.step_by_step_mode
+    and session.p100
+    and (session.current_message != "")
+    and is_llm_config_complete(session.llm_api_key, session.llm_base_url)
+):
     session.log_filename, session.log_id = get_next_log_filename()
     logger()
 
@@ -2225,8 +2550,8 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
         st.markdown("---")
 
     if session.schematic_complete and hasattr(session, 'p400_gf_netlist'):
-        st.markdown("### 🏗️ Stage 4: Layout & Simulation Results")
-        with st.expander("Layout & Simulation Output", expanded=True):
+        st.markdown("### 🏗️ Stage 4: Layout & Verification Results")
+        with st.expander("Layout Output", expanded=True):
             st.markdown("**GDS-Factory Netlist:**")
             st.write("```yaml\n" + yaml.dump(session.p400_gf_netlist, width=55))
             
@@ -2234,16 +2559,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 st.markdown("**GDS Layout:**")
                 st.pyplot(session.p400_gdsfig)
             
-            # Try to display simulation results if available
-            try:
-                plot_path = PATH.build / "plot_sax.png"
-                if plot_path.exists():
-                    st.markdown("**Simulation Results:**")
-                    st.image(str(plot_path))
-                else:
-                    st.warning("Simulation plot file not found")
-            except Exception as e:
-                st.warning(f"Error displaying simulation plot: {e}")
+            st.info("本阶段仅展示 GDS 与 DRC 结果。")
         st.markdown("---")
 
     st.markdown(
@@ -2291,9 +2607,19 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             session.p100_list_of_docs = list_of_docs
             session.p100_list_of_cnames = list_of_cnames
 
+            with st.spinner("Design mode classification ..."):
+                session.design_mode_decision = llm_api.design_mode_agent(
+                    session.current_message,
+                )
+            design_mode_result = session.design_mode_decision or {}
+            design_type = design_mode_result.get("design_type", "circuit_routing")
+
             # Perform entity extraction and preschematic generation
             with st.spinner("Entity extraction ..."):
-                session.p200_pretemplate = llm_api.entity_extraction(session.current_message)
+                session.p200_pretemplate = llm_api.entity_extraction(
+                    session.current_message,
+                    design_type=design_type,
+                )
                 session.p200_preschematic = llm_api.preschematic(session.p200_pretemplate, session.p100_llm_api_selection)
                 # Create a copy of the pretemplate for later use
                 session.p200_pretemplate_copy = copy.deepcopy(session.p200_pretemplate)
@@ -2302,15 +2628,23 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             st.success("✅ Entity extraction completed!")
 
             # -------------------------------------------------------------
-            # 👑 Mode Detection: Single Component vs Circuit Routing
+            # 👑 Independent Design Mode Agent: Single Component vs Circuit Routing
             # -------------------------------------------------------------
-            # Use LLM-detected intent from prompt
-            design_type = session.p200_pretemplate.get_design_type() if hasattr(session.p200_pretemplate, 'get_design_type') else session.p200_pretemplate.get("design_type", "circuit_routing")
             components = session.p200_pretemplate.get("components_list", [])
+
+            if design_mode_result.get("reason"):
+                st.caption(
+                    f"Design mode agent: {design_type} "
+                    f"(confidence={design_mode_result.get('confidence', 0):.2f}) - "
+                    f"{design_mode_result.get('reason')}"
+                )
             
             is_routing = True
             if design_type == "single_component":
                 is_routing = False
+                session.single_component_mode = True
+            else:
+                session.single_component_mode = False
             
             # Set phase based on mode
             if not is_routing:
@@ -2389,6 +2723,9 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 # except Exception as e:
                 #     st.warning(f"LLM search error: {e}")
                 
+                found_match = False
+                best_match_name = ""
+
                 if found_match:
                      session.automatic_phase = "pdk_optimization"
                      session.pdk_candidate_name = best_match_name
@@ -2482,75 +2819,123 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                      
         if hasattr(session, 'automatic_phase') and session.automatic_phase == "pdk_optimization":
             st.markdown("### 🔧 Component Optimization & Simulation")
+            st.info("当前请求被识别为单器件设计，已直接进入单器件优化/仿真阶段，不会再经过多器件的组件选择流程。")
             
             col_opt1, col_opt2 = st.columns([3, 1])
             with col_opt2:
                  if st.button("New Design"):
-                    # Clear session keys related to workflow
-                    keys_to_clear = ['p200_pretemplate', 'generated_template_path', 'automatic_phase', 'current_message', 'input_submitted']
+                    # Clear session keys related to workflow to avoid stale state lock.
+                    keys_to_clear = [
+                        'p200_pretemplate',
+                        'p200_pretemplate_copy',
+                        'p200_preschematic',
+                        'p200_selected_components',
+                        'p200_selected_template',
+                        'p200_componenets_search_r',
+                        'p200_retreived_templates',
+                        'p300',
+                        'p300_circuit_dsl',
+                        'p300_dot_string',
+                        'p300_dot_string_draft',
+                        'p400',
+                        'p400_gf_netlist',
+                        'p400_gdsfig',
+                        'generated_template_path',
+                        'discovery_result',
+                        'design_mode_decision',
+                        'automatic_phase',
+                        'current_message',
+                        'chat_input',
+                        'last_input',
+                    ]
                     for key in keys_to_clear:
                         if key in session:
                             del session[key]
+
+                    session.entity_extraction_complete = False
+                    session.component_search_complete = False
+                    session.schematic_complete = False
+                    session.single_component_mode = False
+                    session.components_selected = False
+                    session.template_selected = False
+                    session.show_examples = True
+                    session.input_submitted = False
                     st.rerun()
 
             if hasattr(session, 'generated_template_path') and session.generated_template_path:
-                if st.button("🚀 Run FDTD / Simulation", type="primary"):
-                    st.info("🔄 Running Tidy3D simulation...")
-                    
+                if st.button("🚀 Run MEEP / Simulation", type="primary"):
+                    st.info("🔄 Running MEEP simulation...")
+
                     try:
-                        from PhotonicsAI.Photon import tidy3d_runner
-                        import os
-                        
-                        # Enable actual cloud run
-                        os.environ["TIDY3D_RUN"] = "1"
-                        
-                        # Build session dict for tidy3d
-                        session_dict = {
-                            "p200_pretemplate": session.p200_pretemplate if hasattr(session, 'p200_pretemplate') else {},
-                            "p300_circuit_dsl": {
-                                "doc": {"title": session.p200_pretemplate.get("title", "Component") if hasattr(session, 'p200_pretemplate') else "Component"}
-                            }
-                        }
-                        
-                        # Run Tidy3D
-                        tidy3d_runner.try_log_tidy3d(session_dict)
-                        
-                        st.success("✅ Tidy3D simulation completed!")
-                        
-                        # Use unified component detector
-                        from component_detector import detect_component_type
-                        
-                        component_type = "unknown"
-                        comp_list = session_dict.get("p200_pretemplate", {}).get("components_list", [])
-                        if comp_list:
-                            component_type, confidence = detect_component_type(str(comp_list[0]))
-                        
-                        # Show generated images for this component type
-                        sim_pngs = [
-                            PATH.build / f"tidy3d_sim_z0_{component_type}.png",
-                            PATH.build / f"tidy3d_sim_x0_{component_type}.png", 
-                            PATH.build / f"tidy3d_sim_y0_{component_type}.png",
+                        comp_list = session.p200_pretemplate.get("components_list", []) if hasattr(session, 'p200_pretemplate') else []
+                        first_comp = str(comp_list[0]).lower() if comp_list else ""
+
+                        if "mmi" not in first_comp:
+                            st.warning("当前 MEEP 通道仅支持 MMI 类单器件。")
+                            st.stop()
+
+                        default_meep_python = PATH.repo / ".meep-env" / "bin" / "python"
+                        default_meep_script = PATH.repo / "meep_sim" / "mmi_4x4.py"
+                        default_meep_output = PATH.build / "meep_output_modal"
+
+                        meep_python = Path(os.getenv("OPTIAI_MEEP_PYTHON", str(default_meep_python)))
+                        meep_script = Path(os.getenv("OPTIAI_MEEP_SCRIPT", str(default_meep_script)))
+                        meep_output_dir = Path(os.getenv("OPTIAI_MEEP_OUTPUT_DIR", str(default_meep_output)))
+
+                        if not meep_python.exists():
+                            st.error(f"未找到 MEEP Python: {meep_python}")
+                            st.stop()
+                        if not meep_script.exists():
+                            st.error(f"未找到 MEEP 脚本: {meep_script}")
+                            st.stop()
+
+                        meep_output_dir.mkdir(parents=True, exist_ok=True)
+
+                        cmd = [
+                            str(meep_python),
+                            str(meep_script),
+                            "--source-type", "continuous",
+                            "--source-kind", "eigenmode",
+                            "--run-method", "cw",
+                            "--output-dir", str(meep_output_dir),
                         ]
-                        # Fallback to default names if component-specific files don't exist
-                        default_pngs = [
-                            PATH.build / "tidy3d_sim_z0.png",
-                            PATH.build / "tidy3d_sim_x0.png", 
-                            PATH.build / "tidy3d_sim_y0.png",
-                        ]
-                        
-                        # Use component-specific files if they exist, otherwise use defaults
-                        for i, png_path in enumerate(sim_pngs):
-                            if png_path.exists():
-                                st.image(str(png_path), caption=png_path.name)
-                            elif default_pngs[i].exists():
-                                st.image(str(default_pngs[i]), caption=default_pngs[i].name)
-                        
-                        # Show log
-                        tlog = PATH.build / "tidy3d.log"
-                        if tlog.exists():
-                            with st.expander("📄 Simulation Log"):
-                                st.code(tlog.read_text(encoding="utf-8"), language="text")
-                                
+
+                        run_result = subprocess.run(
+                            cmd,
+                            cwd=str(meep_script.parent),
+                            capture_output=True,
+                            text=True,
+                            timeout=1800,
+                            check=False,
+                        )
+
+                        if run_result.returncode == 0:
+                            st.success("✅ MEEP simulation completed!")
+                            published_path, publish_message = publish_optimized_component_to_library(
+                                session.generated_template_path,
+                                first_comp,
+                                meep_output_dir,
+                            )
+                            if published_path:
+                                session.generated_template_path = published_path
+                                st.success(f"✅ Optimized component auto-added to library: `{Path(published_path).name}`")
+                            else:
+                                st.warning(f"Library publish skipped: {publish_message}")
+                        else:
+                            st.error(f"MEEP simulation failed (exit={run_result.returncode}).")
+
+                        with st.expander("📄 MEEP Run Log", expanded=True):
+                            stdout_text = (run_result.stdout or "").strip()
+                            stderr_text = (run_result.stderr or "").strip()
+                            if stdout_text:
+                                st.code(stdout_text[-8000:], language="text")
+                            if stderr_text:
+                                st.code(stderr_text[-4000:], language="text")
+
+                        st.caption(f"MEEP output directory: {meep_output_dir}")
+
+                    except subprocess.TimeoutExpired:
+                        st.error("MEEP simulation timed out (30 minutes).")
                     except Exception as sim_e:
                         st.error(f"Simulation error: {sim_e}")
             else:
@@ -2590,6 +2975,48 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
         # Phase 2: Component Selection (only show if entity extraction is complete)
         elif hasattr(session, 'entity_extraction_complete') and session.entity_extraction_complete and not (hasattr(session, 'component_search_complete') and session.component_search_complete):
             session.automatic_phase = "component_selection"
+
+            # Initialize search results once when entering component selection.
+            if not hasattr(session, 'p200_componenets_search_r') and not hasattr(session, 'p200_retreived_templates'):
+                with st.spinner("Searching design library ..."):
+                    if hasattr(session, 'p200_pretemplate') and len(session.p200_pretemplate.get("components_list", [])):
+                        session.p200_retreived_templates = []
+                        session.p200_componenets_search_r = []
+                        for c in session.p200_pretemplate.get("components_list", []):
+                            local_r = build_local_search_result(c, list_of_cnames)
+                            if local_r.match_list:
+                                session.p200_componenets_search_r.append(local_r)
+                                continue
+                            try:
+                                r = llm_api.llm_search(c, list_of_docs)
+                                session.p200_componenets_search_r.append(r)
+                            except Exception:
+                                session.p200_componenets_search_r.append(LocalSearchResult([], []))
+
+            if (
+                not session.get("components_selected", False)
+                and hasattr(session, 'p200_componenets_search_r')
+                and session.p200_componenets_search_r
+            ):
+                selected_components = []
+                for search_result in session.p200_componenets_search_r:
+                    if not getattr(search_result, "match_list", None):
+                        continue
+
+                    best_idx = 0
+                    for idx, score in enumerate(getattr(search_result, "match_scores", [])):
+                        if score == "exact":
+                            best_idx = idx
+                            break
+                    selected_components.append(list_of_cnames[search_result.match_list[best_idx]])
+
+                if selected_components:
+                    session.p200_selected_components = selected_components
+                    session.components_selected = True
+                    session.component_search_complete = True
+                    st.success("✅ Auto-selected best component matches. Continuing to schematic generation...")
+                    st.rerun()
+
             st.markdown(
                 '<div style="text-align: right; font-size: 18px; font-family: monospace;">Component Selection</div>',
                 unsafe_allow_html=True,
@@ -2990,11 +3417,6 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                     routing_flag = False
                     pass
 
-            with st.spinner("Simulating s-parameters ..."):
-                wl = np.linspace(1.5, 1.6, 200)
-                result = session["p400_sax_circuit"](wl=wl)
-                p400_sax_fig = utils.plot_dict_arrays(wl, result)
-
             logger()
 
             st.success("✅ Layout and simulation completed!")
@@ -3008,15 +3430,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
             else:
                 st.warning("GDS figure not available")
             
-            st.markdown("**Simulation Results:**")
-            try:
-                plot_path = PATH.build / "plot_sax.png"
-                if plot_path.exists():
-                    st.image(str(plot_path))
-                else:
-                    st.warning("Simulation plot file not found")
-            except Exception as e:
-                st.warning(f"Error displaying simulation plot: {e}")
+            st.info("本阶段仅展示 GDS 与 DRC 结果。")
                 
             with st.spinner("Checking DRC..."):
                 try:
@@ -3091,19 +3505,6 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
 
             # Circuit optimizer
             optimize_flag = False
-            if "properties" in session["p300_circuit_dsl"]:
-                if "optimizer" in session["p300_circuit_dsl"]["properties"]:
-                    if "error_fn" in session["p300_circuit_dsl"]["properties"]["optimizer"]:
-                        if (
-                            "free_params"
-                            in session["p300_circuit_dsl"]["properties"]["optimizer"]
-                        ):
-                            if (
-                                "sparam"
-                                in session["p300_circuit_dsl"]["properties"]["optimizer"]
-                            ):
-                                if routing_flag:
-                                            optimize_flag = 0
 
             if optimize_flag:
                 with st.spinner("Optimizing circuit..."):
@@ -3117,10 +3518,6 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                     st.markdown(":red[Routing error.]")
                     pass
 
-                wl = np.linspace(1.53, 1.57, 500)
-                result = session["p400_sax_circuit"](wl=wl)
-                p400_sax_fig = utils.plot_dict_arrays(wl, result)
-
                 st.success("✅ Circuit optimization completed!")
                 
                 # Display optimized results
@@ -3132,15 +3529,7 @@ elif not session.step_by_step_mode and session.p100 and (session.current_message
                 else:
                     st.warning("GDS figure not available")
                 
-                st.markdown("**Optimized Simulation Results:**")
-                try:
-                    plot_path = PATH.build / "plot_sax.png"
-                    if plot_path.exists():
-                        st.image(str(plot_path))
-                    else:
-                        st.warning("Simulation plot file not found")
-                except Exception as e:
-                    st.warning(f"Error displaying simulation plot: {e}")
+                st.info("SAX 仿真结果已移除，因此不再显示优化后的 s-parameter 曲线。")
 
             # Runtime tracking - measure from p100 to p400 completion (after all processing)
             session.p100_end_time = time.time()

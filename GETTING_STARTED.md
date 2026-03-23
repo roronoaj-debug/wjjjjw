@@ -1,12 +1,12 @@
-# Getting Started with PhIDO
+# Getting Started with OptiAi
 
-This comprehensive guide will walk you through setting up and using PhIDO (Photonics Intelligent Design and Optimization) for automated photonic circuit design. PhIDO offers two distinct workflow modes to accommodate different user preferences and use cases.
+This comprehensive guide will walk you through setting up and using OptiAi for automated photonic circuit design. OptiAi offers two distinct workflow modes to accommodate different user preferences and use cases.
 
 ## Table of Contents
 
 1. [Prerequisites and Installation](#prerequisites-and-installation)
 2. [Configuration](#configuration)
-3. [Running PhIDO](#running-phido)
+3. [Running OptiAi](#running-optiai)
 4. [Automatic Workflow (Guided Mode)](#automatic-workflow-guided-mode)
 5. [Step-by-Step Workflow (Independent Mode)](#step-by-step-workflow-independent-mode)
 6. [Practical Examples](#practical-examples)
@@ -38,8 +38,8 @@ sudo apt-get install -y build-essential python3-dev swig
 ### Step 2: Set Up Python Environment
 
 ```bash
-# Navigate to the PhIDO directory
-cd /path/to/PhIDO-Release
+# Navigate to the project root
+cd /path/to/project-root
 
 # Create virtual environment
 python3 -m venv venv
@@ -88,51 +88,23 @@ touch .env
 Add your API keys to the `.env` file:
 
 ```bash
-# Required for OpenAI models (GPT-4, GPT-4o, O1)
-OPENAI_API_KEY='your-openai-api-key'
-
-# Required for Anthropic Claude models
-ANTHROPIC_API_KEY='your-anthropic-api-key'
-
-# Required for Google Gemini models
-GOOGLEGENAI_API_KEY='your-google-api-key'
-
-# Required for DeepSeek-R1
-DEEPSEEK_API_KEY='your-deepseek-api-key'
-
-# Required for models hosted on NVIDIA NIM
-NVIDIA_API_KEY='your-nvidia-nim-api-key'
+# Generic LLM runtime configuration
+LLM_MODEL='your-model-name'
+LLM_API_KEY='your-api-key'
+LLM_BASE_URL='https://api.openai.com/v1'
 ```
 
-**Important**: The `OPENAI_API_KEY` is required even if you're using other models, as PhIDO uses GPT models for formatting entity extraction results.
+**Important**: You can also enter the same values directly in the sidebar when the app starts.
 
 ### Supported LLM Models
 
-PhIDO supports multiple LLM providers. You can configure different models for different steps:
+OptiAi now reads LLM settings from a unified startup section in the sidebar:
 
-#### OpenAI Models
-- **GPT-4o** (`gpt-4o`) - General purpose reasoning
-- **o1** (`o1`) - Specialized for reasoning tasks (Default)
-- **o3-mini** (`o3-mini`) - Faster reasoning model
+- **Model** - Any model name supported by your provider
+- **API Key** - The key for the current provider account
+- **API Base URL** - Required; use the OpenAI-compatible base URL provided by your provider
 
-#### Anthropic Models
-- **Claude-3-7-Sonnet** (`claude-3-7-sonnet-latest`) - Balanced performance
-- **Claude-4.0-Opus** (`claude-opus-4-20250514`) - Advanced reasoning
-
-#### Google Models
-- **Gemini-2.5-Pro** (`gemini-2.5-pro`) - Advanced reasoning
-- **Gemini-1.5-Pro** (`gemini-1.5-pro`) - General purpose
-- **Gemini-1.5-Flash** (`gemini-1.5-flash`) - Fast response
-- **Gemini-2.0-Flash** (`gemini-2.0-flash`) - Latest flash model
-
-#### NVIDIA Models (via NIM API)
-- **Llama-3.1-Nemotron-Ultra** (`nvidia/llama-3.1-nemotron-ultra-253b-v1`)
-- **Nemotron-4-340B** (`nvidia/nemotron-4-340b-instruct`) - Deprecated
-
-#### DeepSeek Models
-- **DeepSeek-Reasoner** (`deepseek-reasoner`) - Specialized reasoning
-
-## Running PhIDO
+## Running OptiAi
 
 ### Quick Start
 
@@ -172,8 +144,8 @@ The Automatic Workflow consists of 5 main phases:
 
 #### Step 1: Start the Application
 
-1. Open your web browser and navigate to `http://localhost:8501` (or whichever port streamlit has set up PhIDO webapp in.)
-2. You'll see the PhIDO interface with workflow mode selection
+1. Open your web browser and navigate to `http://localhost:8501` (or whichever port Streamlit has set up the OptiAi webapp on.)
+2. You'll see the OptiAi interface with workflow mode selection
 3. Select **"Automatic"** from the workflow mode dropdown
 
 #### Step 2: Enter Circuit Description
@@ -194,7 +166,7 @@ The circuit should have input/output ports and be suitable for optical switching
 #### Step 3: Entity Extraction (Automatic)
 
 1. Click **"Submit"** or press Enter
-2. PhIDO will automatically:
+2. OptiAi will automatically:
    - Analyze your input using the selected LLM
    - Extract circuit requirements and specifications
    - Identify required components and parameters
@@ -208,7 +180,7 @@ The circuit should have input/output ports and be suitable for optical switching
 
 #### Step 4: Component Selection (Automatic)
 
-1. PhIDO automatically searches the knowledge base for matching components
+1. OptiAi automatically searches the knowledge base for matching components
 2. The system will:
    - Match extracted requirements with available photonic components
    - Search the DesignLibrary for suitable components
@@ -222,7 +194,7 @@ The circuit should have input/output ports and be suitable for optical switching
 
 #### Step 5: Schematic Generation (Automatic)
 
-1. PhIDO automatically generates the circuit schematic
+1. OptiAi automatically generates the circuit schematic
 2. The system will:
    - Create a circuit DSL (Domain Specific Language) representation
    - Generate component connections and routing
@@ -237,22 +209,22 @@ The circuit should have input/output ports and be suitable for optical switching
 
 #### Step 6: Layout & Simulation (Automatic)
 
-1. PhIDO automatically generates the physical layout
+1. OptiAi automatically generates the physical layout
 2. The system will:
    - Create GDS layout files for fabrication
    - Generate component geometries and routing
-   - Run circuit simulations using SAX
-   - Provide performance analysis results
+   - Render the generated layout for inspection
+   - Prepare artifacts for DRC validation
 
 **Layout Output:**
 - GDS files ready for fabrication
 - Visual layout representation
-- Simulation results and performance metrics
 - Component placement and routing information
+- Validation-ready artifacts and reports
 
 #### Step 7: Design Rule Checking (Automatic)
 
-1. PhIDO automatically validates the layout
+1. OptiAi automatically validates the layout
 2. The system will:
    - Run KLayout DRC (Design Rule Checking)
    - Check for manufacturing rule violations
@@ -288,7 +260,7 @@ The Step-by-Step Workflow provides 5 independent execution steps:
 2. **Component Specification** - Execute with predefined templates or custom components
 3. **Circuit DSL Creation** - Generate circuit DSL from custom inputs
 4. **Schematic Generation** - Create schematics independently
-5. **Layout & Simulation** - Generate layouts and run simulations
+5. **Layout & Validation** - Generate layouts and inspect validation artifacts
 
 ### Step-by-Step Guide
 
@@ -305,7 +277,7 @@ Choose from the available steps:
 - **Component Specification** - Search and select components
 - **Circuit DSL Creation** - Create circuit representation
 - **Schematic Generation** - Generate visual schematics
-- **Layout & Simulation** - Create layouts and run simulations
+- **Layout & Validation** - Create layouts and inspect validation artifacts
 
 #### Step 3: Entity Extraction
 
@@ -411,9 +383,9 @@ The device should have 500nm wide waveguides and 10um long heater elements.
 - Port definitions
 - Signal flow representation
 
-#### Step 7: Layout & Simulation
+#### Step 7: Layout & Validation
 
-**Purpose**: Generate physical layouts and run circuit simulations
+**Purpose**: Generate physical layouts and inspect validation outputs
 
 **How to use:**
 1. Select "Layout & Simulation" from the step dropdown
@@ -422,15 +394,16 @@ The device should have 500nm wide waveguides and 10um long heater elements.
    - **Custom Circuit DSL**: Provide your own YAML
 3. Click **"Run Layout & Simulation"**
 
-**Simulation Options:**
-- **SAX Simulation**: Circuit performance analysis
-- **FDTD Integration**: Electromagnetic field simulation (available only on the `tidy3d_integration` branch)
+**Validation Options:**
+- **Layout Preview**: Inspect generated GDS geometry in the UI
+- **DRC Integration**: Run KLayout-based design rule checking
+- **MEEP Logging**: Record best-effort simulation handoff metadata where available
 
 **Output:**
 - GDS layout files
 - Visual layout representation
-- Simulation results and metrics
-- Performance analysis data
+- DRC reports when available
+- Validation status and generated artifacts
 
 ### Step-by-Step Workflow Features
 
@@ -656,7 +629,7 @@ the second stage has 2 MMIs splitting to 4 outputs, and so on, until 16 outputs.
 
 #### 1. Import Errors
 
-**Problem**: `ModuleNotFoundError` when starting PhIDO
+**Problem**: `ModuleNotFoundError` when starting OptiAi
 
 **Solution**:
 ```bash
@@ -707,7 +680,7 @@ python -c "import openai; print('OpenAI API key configured')"
 **Problem**: Large layer numbers cause issues
 
 **Solution**:
-- PhIDO automatically handles layer number limitations
+- OptiAi automatically handles layer number limitations
 - Check GDS file with KLayout viewer
 - Verify layer definitions in component files
 
@@ -753,7 +726,7 @@ Enable debug mode for detailed error information:
 
 ### Performance Optimization
 
-1. **Model Selection**: Use faster models (GPT-4o, Gemini-Flash) for development
+1. **Model Selection**: Prefer `glm-4-flash` for faster development iterations
 2. **Batch Processing**: Process multiple circuits in sequence
 3. **Template Caching**: Reuse templates for similar circuits
 4. **Resource Monitoring**: Track memory and CPU usage
@@ -764,9 +737,9 @@ Enable debug mode for detailed error information:
 
 1. **Create Component File**: Add new components to `KnowledgeBase/DesignLibrary/`
 2. **Define Geometry**: Specify component dimensions and parameters
-3. **Add S-Parameters**: Include simulation models
+3. **Add Metadata**: Include component metadata or reference model data if needed
 4. **Update Templates**: Add to `templates.yaml`
-5. **Test Integration**: Verify with PhIDO workflows
+5. **Test Integration**: Verify with OptiAi workflows
 
 ### DRC Rule Customization
 
@@ -777,7 +750,7 @@ Enable debug mode for detailed error information:
 
 ### Workflow Automation
 
-1. **Script Integration**: Use PhIDO programmatically
+1. **Script Integration**: Use OptiAi programmatically
 2. **Batch Processing**: Process multiple designs
 3. **API Integration**: Connect with external tools
 4. **Custom Templates**: Create domain-specific templates
@@ -803,7 +776,7 @@ Enable debug mode for detailed error information:
 1. **Explore Templates**: Try different circuit templates
 2. **Experiment with Parameters**: Modify component specifications
 3. **Create Custom Circuits**: Design your own photonic circuits
-4. **Integrate with Tools**: Connect PhIDO with your existing workflow
-5. **Contribute**: Help improve PhIDO by contributing code or documentation
+4. **Integrate with Tools**: Connect OptiAi with your existing workflow
+5. **Contribute**: Help improve OptiAi by contributing code or documentation
 
-Happy designing with PhIDO! 🚀
+Happy designing with OptiAi! 🚀
