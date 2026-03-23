@@ -1,5 +1,5 @@
 gdsfactory==8.18.1
-kfactory==0.21.7
+kfactory==2.4.6
 gdstk==0.9.60
 
 # Core scientific packages
