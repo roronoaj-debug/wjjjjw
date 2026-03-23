@@ -1,6 +1,6 @@
 gdsfactory==8.18.1
 kfactory==0.21.7
-gdstk==0.9.60
+gdstk==1.0.0
 
 # Core scientific packages
 numpy>=1.24.0
