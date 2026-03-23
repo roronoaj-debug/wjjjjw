@@ -1,4 +1,4 @@
-gdsfactory==8.18.1
+gdsfactory==9.39.3
 kfactory==0.21.7
 gdstk==0.9.60
 
