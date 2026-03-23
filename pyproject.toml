@@ -53,7 +53,7 @@ dev = [
 docs = [
   "jupytext",
   "matplotlib",
-  "jupyter-book>=0.15.1,<1.1"
+  "jupyter-book>=0.15.1,<2.2"
 ]
 
 [tool.codespell]
