@@ -14,7 +14,7 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-    "gdsfactory~=8.18.1",
+    "gdsfactory~=9.39.3",
     "fastapi",
     "uvicorn",
     "sse-starlette",
